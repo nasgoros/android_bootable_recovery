@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 
 #include "otautil/boot_state.h"
 #include "recovery_ui/ui.h"
@@ -35,6 +36,7 @@ static std::vector<menu_action_t> g_main_actions{
   { "Apply update", Device::APPLY_UPDATE },
   { "Factory reset", Device::MENU_WIPE },
   { "Advanced", Device::MENU_ADVANCED },
+  { "File manager", Device::FILE_MANAGER },
 };
 
 static std::vector<std::string> g_advanced_header{ "Advanced options" };
@@ -69,6 +71,10 @@ static void PopulateMenuItems() {
 
 Device::Device(RecoveryUI* ui) : ui_(ui) {
   ui->SetDevice(this);
+  if (!android::base::GetBoolProperty("ro.nasgoros.recovery_file_manager", false)) {
+    g_main_actions.erase(std::remove_if(g_main_actions.begin(), g_main_actions.end(),
+        [](const auto& item) { return item.second == FILE_MANAGER; }), g_main_actions.end());
+  }
   PopulateMenuItems();
 }
 

@@ -15,6 +15,7 @@
  */
 
 #include "recovery.h"
+#include "file_manager/file_manager.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -643,6 +644,10 @@ change_menu:
         }
         break;
       }
+
+      case Device::FILE_MANAGER:
+        RunFileManager(device);
+        break;
 
       case Device::VIEW_RECOVERY_LOGS:
         choose_recovery_file(device);

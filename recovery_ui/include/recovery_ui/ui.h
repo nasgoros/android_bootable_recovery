@@ -258,6 +258,16 @@ class RecoveryUI {
                           bool menu_only, const std::function<int(int, bool)>& key_handler,
                           bool refreshable = false) = 0;
 
+  // The high bit distinguishes a row's overflow button from opening its folder.
+  static constexpr size_t kFileAction = 1U << 28;
+  virtual size_t ShowFileMenu(const std::vector<std::string>& headers,
+                             const std::vector<std::string>& items,
+                             const std::vector<bool>& actions, size_t initial_selection,
+                             const std::function<int(int, bool)>& key_handler) {
+    size_t selected = ShowMenu(headers, items, initial_selection, true, key_handler, true);
+    return selected < actions.size() && actions[selected] ? selected | kFileAction : selected;
+  }
+
   // Displays the localized wipe data menu with pre-generated graphs. If there's an issue
   // with the graphs, falls back to use the backup string headers and items instead. The initial
   // selection is the 0th item in the menu, which is expected to reboot the device without a wipe.

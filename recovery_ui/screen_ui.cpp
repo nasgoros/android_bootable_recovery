@@ -206,7 +206,19 @@ int TextMenu::DrawItems(int x, int y, int screen_width, bool long_press) const {
     draw_funcs_.DrawHighlightBar(padding + x, y + offset, screen_width - (padding + x) * 2, bar_height);
 
     draw_funcs_.SetColor(selected ? UIElement::MENU_SEL_FG : UIElement::MENU);
-    offset += draw_funcs_.DrawTextLine(padding * 2 + x, y + offset, TextItem(i), false /* bold */);
+    std::string label = TextItem(i);
+    if (HasItemAction(i)) {
+      const int action_width = std::max(bar_height, draw_funcs_.MenuCharWidth() * 4);
+      const int text_width = screen_width - 2 * x - 4 * padding - action_width;
+      label = label.substr(0, std::max(0, text_width / draw_funcs_.MenuCharWidth()));
+      const int dot = std::max(2, char_height_ / 8);
+      const int dot_x = screen_width - x - padding - action_width / 2;
+      const int center_y = y + offset + bar_height / 2;
+      for (int n = -1; n <= 1; ++n) {
+        draw_funcs_.DrawFill(dot_x - dot / 2, center_y + n * dot * 3 - dot / 2, dot, dot);
+      }
+    }
+    offset += draw_funcs_.DrawTextLine(padding * 2 + x, y + offset, label, false /* bold */);
     offset += spacing;
   }
   offset += horizontal_rule_height;
@@ -1574,6 +1586,12 @@ int ScreenRecoveryUI::SelectMenu(const Point& p) {
       if (new_sel != -1 && new_sel != old_sel) {
         update_screen_locked();
       }
+      const int action_width = std::max(MenuItemHeight(), MenuCharWidth() * 4);
+      if (new_sel >= 0 && menu_->HasItemAction(new_sel) &&
+          point.x() >= ScreenWidth() - margin_width_ - MenuItemPadding() - action_width &&
+          point.x() < ScreenWidth() - margin_width_ - MenuItemPadding()) {
+        return new_sel | RecoveryUI::kFileAction;
+      }
     }
   }
   return new_sel;
@@ -1638,6 +1656,10 @@ size_t ScreenRecoveryUI::ShowMenu(std::unique_ptr<Menu>&& menu, bool menu_only,
     } else {
       bool visible = IsTextVisible();
       action = key_handler(evt.key(), visible);
+      // Power/Enter opens the same action menu as the overflow touch target.
+      if (action == Device::kInvokeItem && selected >= 0 && menu_->HasItemAction(selected)) {
+        selected |= RecoveryUI::kFileAction;
+      }
     }
 
     if (action < 0) {
@@ -1710,6 +1732,16 @@ size_t ScreenRecoveryUI::ShowMenu(const std::vector<std::string>& headers,
   }
 
   return ShowMenu(std::move(menu), menu_only, key_handler, refreshable);
+}
+
+size_t ScreenRecoveryUI::ShowFileMenu(const std::vector<std::string>& headers,
+                                      const std::vector<std::string>& items,
+                                      const std::vector<bool>& actions, size_t initial_selection,
+                                      const std::function<int(int, bool)>& key_handler) {
+  auto menu = CreateMenu(headers, items, initial_selection);
+  if (!menu) return static_cast<size_t>(Device::kGoBack);
+  menu->SetItemActions(actions);
+  return ShowMenu(std::move(menu), true, key_handler, true);
 }
 
 size_t ScreenRecoveryUI::ShowPromptWipeDataMenu(const std::vector<std::string>& backup_headers,

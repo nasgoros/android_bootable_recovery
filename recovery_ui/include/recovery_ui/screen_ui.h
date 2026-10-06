@@ -96,6 +96,10 @@ class Menu {
   virtual ~Menu() = default;
   // Returns the current menu selection.
   int selection() const;
+  void SetItemActions(const std::vector<bool>& actions) { item_actions_ = actions; }
+  bool HasItemAction(size_t index) const {
+    return index < item_actions_.size() && item_actions_[index];
+  }
   // Sets the current selection to |sel|. Handle the overflow cases depending on if the menu is
   // scrollable.
   virtual int Select(int sel) = 0;
@@ -116,6 +120,7 @@ class Menu {
   Menu(size_t initial_selection, const DrawInterface& draw_func);
   // Current menu selection.
   int selection_;
+  std::vector<bool> item_actions_;
   // Reference to the class that implements all the draw functions.
   const DrawInterface& draw_funcs_;
 };
@@ -321,6 +326,10 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   size_t ShowMenu(const std::vector<std::string>& headers, const std::vector<std::string>& items,
                   size_t initial_selection, bool menu_only,
                   const std::function<int(int, bool)>& key_handler, bool refreshable) override;
+  size_t ShowFileMenu(const std::vector<std::string>& headers,
+                      const std::vector<std::string>& items, const std::vector<bool>& actions,
+                      size_t initial_selection,
+                      const std::function<int(int, bool)>& key_handler) override;
   void SetTitle(const std::vector<std::string>& lines) override;
 
   void KeyLongPress(int) override;
