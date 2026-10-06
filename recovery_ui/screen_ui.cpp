@@ -53,6 +53,8 @@
 #include "recovery_ui/device.h"
 #include "recovery_ui/ui.h"
 
+static constexpr char kRecoveryTitle[] = "NasgorOS Recovery";
+
 enum DirectRenderManager {
     DRM_INNER,
     DRM_OUTER,
@@ -858,10 +860,17 @@ void ScreenRecoveryUI::draw_menu_and_text_buffer_locked(
 
   if (menu_) {
     auto& logo = fastbootd_logo_enabled_ ? fastbootd_logo_ : lineage_logo_;
-    auto logo_width = gr_get_width(logo.get());
+    const int logo_width = fastbootd_logo_enabled_ ? gr_get_width(logo.get())
+        : static_cast<int>(sizeof(kRecoveryTitle) - 1) * char_width_;
     auto logo_height = gr_get_height(logo.get());
     auto centered_x = ScreenWidth() / 2 - logo_width / 2;
-    DrawSurface(logo.get(), 0, 0, logo_width, logo_height, centered_x, y);
+    if (fastbootd_logo_enabled_) {
+      DrawSurface(logo.get(), 0, 0, logo_width, logo_height, centered_x, y);
+    } else {
+      SetColor(UIElement::HEADER);
+      DrawTextLine(centered_x, y + std::max(0, (logo_height - char_height_) / 2),
+                   kRecoveryTitle, true);
+    }
     y += logo_height;
 
     if (!menu_->IsMain()) {
@@ -1556,8 +1565,10 @@ int ScreenRecoveryUI::SelectMenu(const Point& p) {
   if (menu_) {
     if (!menu_->IsMain()) {
       // Back arrow hitbox
-      const static int logo_width = gr_get_width(lineage_logo_.get());
-      const static int logo_height = gr_get_height(lineage_logo_.get());
+      const auto& logo = fastbootd_logo_enabled_ ? fastbootd_logo_ : lineage_logo_;
+      const int logo_width = fastbootd_logo_enabled_ ? gr_get_width(logo.get())
+          : static_cast<int>(sizeof(kRecoveryTitle) - 1) * char_width_;
+      const int logo_height = gr_get_height(logo.get());
       const static int icon_w = gr_get_width(back_icon_.get());
       const static int icon_h = gr_get_height(back_icon_.get());
       const static int centered_x = ScreenWidth() / 2 - logo_width / 2;
