@@ -35,6 +35,9 @@ or renaming existing files is safer. merlinx images are ext4 without shared
 blocks and its vbmeta disables hashtree checks, so RW changes boot; other
 devices (erofs, shared blocks, enforced verity) may not support RW.
 
+Example: to disable addon.d (scripts that survive a ROM flash, e.g. LiteGapps),
+mount `system` RW and delete or rename `system/addon.d` in the file manager.
+
 Before install, wipe, rescue/fastboot or reboot, every partition mounted from
 this menu is unmounted (`IsPartitionWritingAction` in recovery.cpp). On user
 builds the menu stays available when the file manager is enabled.
