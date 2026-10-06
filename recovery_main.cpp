@@ -503,7 +503,10 @@ int main(int argc, char** argv) {
 
   if (get_build_type() == "user") {
     device->RemoveMenuItemForAction(Device::WIPE_SYSTEM);
-    device->RemoveMenuItemForAction(Device::MOUNT_SYSTEM);
+    // nasgorOS keeps the partition (RO/RW) menu on release builds with the file manager.
+    if (!android::base::GetBoolProperty("ro.nasgoros.recovery_file_manager", false)) {
+      device->RemoveMenuItemForAction(Device::MOUNT_SYSTEM);
+    }
   }
 
   ui->SetBackground(RecoveryUI::NONE);

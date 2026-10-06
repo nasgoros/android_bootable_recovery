@@ -150,6 +150,7 @@ cc_library_static {
         "recovery.cpp",
         "file_manager/file_manager.cpp",
         "file_manager/operations.cpp",
+        "file_manager/partitions.cpp",
     ],
 
     shared_libs: [

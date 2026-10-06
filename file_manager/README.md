@@ -21,6 +21,24 @@ can leave `.nasgor-move-*` staging content; the source is retained until commit.
 Do not unplug storage during an operation. Special files cannot be copied across
 filesystems. Directory details report the directory entry size, not recursive size.
 
+## Mount partitions (RO/RW)
+
+**File manager > Mount partisi (RO/RW)** (also Advanced > **Mount partitions**)
+lists system, system_ext, product, vendor and odm from the recovery fstab. Each
+can be mounted read-only or read-write below `/mnt/<name>`, or unmounted.
+Dynamic partitions are mapped first. Read-write clears the block device
+read-only flag and remounts; it asks for confirmation. Mounted partitions appear
+in the storage list and are browsed with the same file actions.
+
+Moving a file *into* a partition copies it without its SELinux label; deleting
+or renaming existing files is safer. merlinx images are ext4 without shared
+blocks and its vbmeta disables hashtree checks, so RW changes boot; other
+devices (erofs, shared blocks, enforced verity) may not support RW.
+
+Before install, wipe, rescue/fastboot or reboot, every partition mounted from
+this menu is unmounted (`IsPartitionWritingAction` in recovery.cpp). On user
+builds the menu stays available when the file manager is enabled.
+
 Feature switch: `ro.nasgoros.recovery_file_manager=true` in recovery properties.
 Upstream baseline: LineageOS `37c5d17bec80020b8dbfb0a0d39b4ba93b2b6efd`.
 Keep the feature module separate when rebasing the fork onto LineageOS.

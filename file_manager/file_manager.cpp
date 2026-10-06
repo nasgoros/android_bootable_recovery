@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "file_manager.h"
 #include "operations.h"
+#include "partitions.h"
 #include <ctime>
 #include <functional>
 #include <memory>
@@ -46,6 +47,9 @@ class Browser {
   bool RenameInput(const std::string& old, std::string* name);
   void Details(const Storage& storage, const std::string& path);
   void Browse(Storage& storage, const std::string& label);
+ public:
+  void Partitions();
+ private:
   RecoveryUI* ui_;
   std::function<int(int, bool)> keys_;
   bool stopped_ = false;
@@ -54,17 +58,36 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
   while (!stopped_) {
     std::vector<VolumeInfo> volumes;
     VolumeManager::Instance()->getVolumeInfo(volumes);
-    std::vector<std::string> items{"Kembali / Back", "Refresh storage"};
+    std::vector<std::string> items{"Kembali / Back", "Refresh storage",
+                                   "Mount partisi (RO/RW) / Mount partitions"};
+    // Mounted OS partitions are listed first and opened directly.
+    std::vector<recovery::partitions::Partition> mounted_parts;
+    for (const auto& part : recovery::partitions::List()) {
+      auto state = recovery::partitions::GetState(part);
+      if (state == recovery::partitions::State::kUnmounted) continue;
+      mounted_parts.push_back(part);
+      items.push_back("Partisi " + part.name + " [" + recovery::partitions::StateLabel(state) + "]");
+    }
+    const size_t first_volume = 3 + mounted_parts.size();
     std::vector<VolumeInfo> available;
     for (const auto& volume : volumes) {
       available.push_back(volume);
       items.push_back(DisplayName(volume.mLabel.empty() ? volume.mId : volume.mLabel) +
                       (volume.mMountable ? "" : " [locked/unavailable]"));
     }
-    size_t choice = Menu({"File manager - Storage", "Internal storage, SD card or USB OTG"}, items);
+    size_t choice = Menu({"File manager - Storage", "Internal storage, SD card, USB OTG",
+                          "or a mounted system partition"}, items);
     if (choice == 1 || choice == static_cast<size_t>(Device::kRefresh)) continue;
+    if (choice == 2) { Partitions(); continue; }
     if (choice < 2 || choice >= items.size()) return nullptr;
-    const auto& volume = available[choice - 2];
+    if (choice < first_volume) {
+      const auto& part = mounted_parts[choice - 3];
+      auto storage = std::make_unique<Storage>(part.mount_point);
+      if (!storage->valid()) { Message({"Partisi tidak terbaca: " + part.mount_point}); continue; }
+      *label = part.name;
+      return storage;
+    }
+    const auto& volume = available[choice - first_volume];
     if (!volume.mMountable || !VolumeManager::Instance()->volumeMount(volume.mId)) {
       Message({"Storage tidak dapat dibuka.", "Internal storage mungkin terenkripsi/terkunci.",
                "Recovery ini tidak membuka enkripsi PIN/FBE.", "Untuk SD/USB: cek koneksi dan filesystem."});
@@ -218,6 +241,45 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     } else if (action == 5 && S_ISDIR(entry.info.st_mode)) { folder = path; selection = 0; }
   }
 }
+void Browser::Partitions() {
+  using recovery::partitions::State;
+  while (!stopped_) {
+    auto parts = recovery::partitions::List();
+    std::vector<std::string> items{"Kembali / Back"};
+    for (const auto& part : parts) {
+      items.push_back(part.name + "  [" +
+                      recovery::partitions::StateLabel(recovery::partitions::GetState(part)) + "]");
+    }
+    size_t choice = Menu({"Mount partisi / Mount partitions",
+                          "RW: perubahan langsung ke partisi / changes are written directly"},
+                         items);
+    if (choice == static_cast<size_t>(Device::kRefresh)) continue;
+    if (choice == 0 || choice >= items.size()) return;
+    const auto& part = parts[choice - 1];
+    State state = recovery::partitions::GetState(part);
+    std::vector<std::string> options{"Batal / Cancel", "Mount read-only (RO)",
+                                     "Mount read-write (RW)", "Unmount"};
+    size_t action = Menu({part.name + " -> " + part.mount_point,
+                          std::string("Status: ") + recovery::partitions::StateLabel(state)},
+                         options);
+    std::string error;
+    bool ok = true;
+    if (action == 1) {
+      ok = recovery::partitions::Mount(part, false, &error);
+    } else if (action == 2) {
+      if (!Confirm({"Mount " + part.name + " read-write?",
+                    "Perubahan bisa membuat sistem gagal boot.",
+                    "File baru tidak membawa label SELinux; hapus/rename lebih aman.",
+                    "Changes may stop the system from booting."}, "Mount RW")) continue;
+      ok = recovery::partitions::Mount(part, true, &error);
+    } else if (action == 3) {
+      ok = recovery::partitions::Unmount(part, &error);
+    } else {
+      continue;
+    }
+    if (!ok) Message({error});
+  }
+}
 void Browser::Run() {
   while (!stopped_) {
     std::string label;
@@ -228,3 +290,4 @@ void Browser::Run() {
 }
 }  // namespace
 void RunFileManager(Device* device) { Browser(device).Run(); }
+void RunPartitionMenu(Device* device) { Browser(device).Partitions(); }

@@ -16,6 +16,7 @@
 
 #include "recovery.h"
 #include "file_manager/file_manager.h"
+#include "file_manager/partitions.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -448,6 +449,28 @@ static void WriteUpdateInProgress() {
   }
 }
 
+// Actions that write partitions or leave recovery (nasgorOS partition menu).
+static bool IsPartitionWritingAction(Device::BuiltinAction action) {
+  switch (action) {
+    case Device::WIPE_DATA:
+    case Device::WIPE_CACHE:
+    case Device::WIPE_SYSTEM:
+    case Device::APPLY_UPDATE:
+    case Device::APPLY_ADB_SIDELOAD:
+    case Device::ENTER_RESCUE:
+    case Device::ENTER_FASTBOOT:
+    case Device::REBOOT:
+    case Device::SHUTDOWN:
+    case Device::REBOOT_BOOTLOADER:
+    case Device::REBOOT_FASTBOOT:
+    case Device::REBOOT_RECOVERY:
+    case Device::REBOOT_RESCUE:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static bool AskToReboot(Device* device, Device::BuiltinAction chosen_action) {
   bool is_non_ab = android::base::GetProperty("ro.boot.slot_suffix", "").empty();
   bool is_virtual_ab = android::base::GetBoolProperty("ro.virtual_ab.enabled", false);
@@ -536,6 +559,10 @@ change_menu:
         (chosen_item == static_cast<size_t>(RecoveryUI::KeyError::TIMED_OUT))
             ? Device::REBOOT
             : device->InvokeMenuItem(chosen_item);
+
+    // nasgorOS: never install, wipe or reboot with an OS partition still mounted
+    // from the partition menu (it may be mounted read-write).
+    if (IsPartitionWritingAction(chosen_action)) recovery::partitions::UnmountAll();
 
     switch (chosen_action) {
       case Device::MENU_BASE:
@@ -671,26 +698,10 @@ change_menu:
         break;
       }
 
-      case Device::MOUNT_SYSTEM: {
-        static bool mounted = false;
-        if (!mounted) {
-          // For Virtual A/B, set up the snapshot devices (if exist).
-          if (!logical_partitions_mapped() && !CreateSnapshotPartitions()) {
-            ui->Print("Virtual A/B: snapshot partitions creation failed.\n");
-            break;
-          }
-          if (ensure_path_mounted_at(android::fs_mgr::GetSystemRoot(), "/mnt/system") != -1) {
-            ui->Print("Mounted /mnt/system.\n");
-            mounted = true;
-          }
-        } else {
-          if (umount("/mnt/system") != -1) {
-            ui->Print("Unmounted /mnt/system.\n");
-            mounted = false;
-          }
-        }
+      case Device::MOUNT_SYSTEM:
+        // nasgorOS: mount system/product/vendor/... read-only or read-write.
+        RunPartitionMenu(device);
         break;
-      }
 
       case Device::KEY_INTERRUPTED:
         return Device::KEY_INTERRUPTED;
