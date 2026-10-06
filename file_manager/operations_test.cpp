@@ -64,6 +64,21 @@ int main() {
   assert(Read(root + "/baru.txt") == "payload");
   assert(Read(cross + "/occupied") == "original");
   for (const auto& e : fs::directory_iterator(cross)) assert(e.path().filename().string().find(".nasgor-move-") != 0);
+  // A cross-volume failure must not delete source data or leave staged partial copies.
+  fs::create_directory(root + "/unsupported");
+  Write(root + "/unsupported/regular", "keep this");
+  assert(mkfifo((root + "/unsupported/fifo").c_str(), 0600) == 0);
+  assert(!a.Move("unsupported", b, "unsupported", &error));
+  assert(Read(root + "/unsupported/regular") == "keep this");
+  assert(!fs::exists(cross + "/unsupported"));
+  for (const auto& e : fs::directory_iterator(cross)) assert(e.path().filename().string().find(".nasgor-move-") != 0);
+  // Copy symbolic links as links; do not traverse their external targets.
+  fs::create_directory(root + "/linked-tree");
+  fs::create_directory_symlink(external, root + "/linked-tree/external");
+  assert(a.Move("linked-tree", b, "linked-tree", &error));
+  assert(fs::is_symlink(cross + "/linked-tree/external"));
+  assert(b.Remove("linked-tree", &error));
+  assert(Read(external + "/protected") == "outside");
   assert(!a.Move("baru.txt", b, "../escape", &error));
   assert(!a.Move("baru.txt", a, "link/escape", &error));
   assert(!Storage::ValidName(std::string("x\0y", 3)));
