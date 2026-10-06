@@ -88,6 +88,7 @@ bool CopyAt(int source, const std::string& name, int dest, const std::string& ne
       if (!CopyAt(input, item, output, item, depth + 1, error)) return false;
     }
     // Storage filesystems may not implement Unix permissions or timestamps.
+    fchown(output, st.st_uid, st.st_gid);
     fchmod(output, st.st_mode & 0777);
     const timespec times[] = {st.st_atim, st.st_mtim};
     futimens(output, times);
@@ -101,6 +102,7 @@ bool CopyAt(int source, const std::string& name, int dest, const std::string& ne
     if (static_cast<size_t>(size) == link.size()) { errno = ENAMETOOLONG; return Fail(error, "Link"); }
     std::string value(link.data(), size);
     if (symlinkat(value.c_str(), dest, new_name.c_str())) return Fail(error, "Copy link");
+    fchownat(dest, new_name.c_str(), st.st_uid, st.st_gid, AT_SYMLINK_NOFOLLOW);
     return true;
   }
   if (!S_ISREG(st.st_mode)) { errno = ENOTSUP; return Fail(error, "Special files cannot be moved"); }
@@ -132,6 +134,7 @@ bool CopyAt(int source, const std::string& name, int dest, const std::string& ne
     errno = ESTALE;
     return Fail(error, "Source changed during move");
   }
+  fchown(output, before.st_uid, before.st_gid);
   fchmod(output, before.st_mode & 0777);
   const timespec times[] = {before.st_atim, before.st_mtim};
   futimens(output, times);
@@ -256,7 +259,8 @@ bool Storage::Move(const std::string& from, const Storage& target, const std::st
   }
   if (!created) { errno = EEXIST; return Fail(error, "Create staging folder"); }
   Fd stage(ChildDirectory(dest, staging));
-  bool copied = stage >= 0 && CopyAt(source, source_name, stage, "item", 0, error);
+  bool copied = stage >= 0 ? CopyAt(source, source_name, stage, "item", 0, error)
+                           : Fail(error, "Open staging folder");
   if (copied && !SyncDir(stage)) copied = Fail(error, "Flush staging folder");
   if (copied && RenameNoReplace(stage, "item", dest, dest_name)) copied = Fail(error, "Commit move");
   std::string cleanup_error;

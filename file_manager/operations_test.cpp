@@ -50,7 +50,12 @@ int main() {
   assert(a.List("", &entries, &error));
   auto count = entries.size();
   assert(a.List("", &entries, &error) && entries.size() == count);
+  struct stat source_info {}, dest_info {};
+  assert(stat((root + "/folder/sub/file").c_str(), &source_info) == 0);
   assert(a.Move("folder", b, "moved", &error));
+  assert(stat((cross + "/moved/sub/file").c_str(), &dest_info) == 0);
+  assert(source_info.st_uid == dest_info.st_uid && source_info.st_gid == dest_info.st_gid);
+  assert((source_info.st_mode & 0777) == (dest_info.st_mode & 0777));
   assert(!fs::exists(root + "/folder"));
   assert(Read(cross + "/moved/sub/file") == std::string(300000, 'x'));
   assert(b.Remove("moved", &error));
