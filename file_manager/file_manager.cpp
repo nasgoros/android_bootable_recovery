@@ -6,6 +6,7 @@
 #include <ctime>
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include <android-base/stringprintf.h>
@@ -63,6 +64,12 @@ class Browser {
  public:
   explicit Browser(Device* device) : ui_(device->GetUI()),
       keys_(std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2)) {}
+  // Unmount the storage volumes this browser mounted. Otherwise they stay busy and
+  // "Apply update > Choose from <volume>" fails: VolumeManager refuses to mount an
+  // already mounted volume (-EBUSY).
+  ~Browser() {
+    for (const auto& id : mounted_volumes_) VolumeManager::Instance()->volumeUnmount(id);
+  }
   void Run();
  private:
   size_t Menu(const std::vector<std::string>& headers, const std::vector<std::string>& items) {
@@ -86,6 +93,7 @@ class Browser {
   RecoveryUI* ui_;
   std::function<int(int, bool)> keys_;
   bool stopped_ = false;
+  std::set<std::string> mounted_volumes_;  // volume IDs mounted by this browser
 };
 std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
   while (!stopped_) {
@@ -115,7 +123,14 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
       return storage;
     }
     const auto& volume = available[choice - first_volume];
-    if (!volume.mMountable || !VolumeManager::Instance()->volumeMount(volume.mId)) {
+    // A volume opened earlier in this session is still mounted; mounting it again
+    // would fail with -EBUSY.
+    bool mounted = mounted_volumes_.count(volume.mId) > 0;
+    if (!mounted && volume.mMountable && VolumeManager::Instance()->volumeMount(volume.mId)) {
+      mounted_volumes_.insert(volume.mId);
+      mounted = true;
+    }
+    if (!mounted) {
       Message({"Cannot open storage.", "Internal storage may be encrypted/locked.",
                "This recovery does not decrypt PIN/FBE storage.", "For SD/USB: check the connection and filesystem."});
       continue;

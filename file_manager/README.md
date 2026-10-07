@@ -24,6 +24,10 @@ filesystems. Directory details report the directory entry size, not recursive si
 All recovery UI text is **English only** (menus, prompts, errors). Do not add
 Indonesian or bilingual strings.
 
+Storage volumes (SD card, USB OTG) opened by the file manager are unmounted when
+it is closed. Leaving one mounted made **Apply update > Choose from sdcard1** fail,
+because the volume manager refuses to mount a volume that is already mounted.
+
 ## Mount partitions (RO/RW)
 
 **Mount partitions (RO/RW)** is a separate entry in the recovery main menu. It
