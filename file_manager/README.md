@@ -37,6 +37,23 @@ Del, Cancel and Done. The layout/hit-test model is `recovery_ui/keyboard.cpp`
 (no graphics dependency). Labels are ASCII because the recovery font has no other
 glyphs. Physical Back cancels.
 
+## Flash image
+
+Three-dot menu on a `*.img` file > **Flash image** (`flash_image.cpp`):
+
+1. Choose the target from the recovery fstab: `boot`, `init_boot`, `vendor_boot`,
+   `recovery`, `dtbo`, `vbmeta`, `vbmeta_system`, `vbmeta_vendor` (only `emmc`
+   entries; the slot suffix is added on A/B devices).
+2. The image must match the partition (`ANDROID!` for boot/init_boot/recovery,
+   `VNDRBOOT`, DTBO magic `d7b7ab1e`, `AVB0` for vbmeta) and fit in it; otherwise
+   nothing is written.
+3. After confirmation it is written in 1 MiB chunks with progress, flushed, and read
+   back from the device for verification. The rest of the partition is left as it is
+   (like fastboot). A read-only block device flag is cleared once if the write fails.
+
+Host test: `g++ -std=c++17 -Wall -Wextra -Werror file_manager/flash_image.cpp
+file_manager/flash_image_test.cpp -o /tmp/flash-image-test && /tmp/flash-image-test`
+
 ## Startup
 
 While recovery starts (mounting `/data` for adb keys on userdebug builds, USB setup
