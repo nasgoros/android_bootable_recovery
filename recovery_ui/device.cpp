@@ -38,6 +38,7 @@ static std::vector<menu_action_t> g_main_actions{
   { "Advanced", Device::MENU_ADVANCED },
   { "File manager", Device::FILE_MANAGER },
   { "Mount partitions (RO/RW)", Device::MOUNT_SYSTEM },
+  { "Terminal", Device::TERMINAL },
 };
 
 static std::vector<std::string> g_advanced_header{ "Advanced options" };
@@ -73,7 +74,9 @@ Device::Device(RecoveryUI* ui) : ui_(ui) {
   ui->SetDevice(this);
   if (!android::base::GetBoolProperty("ro.nasgoros.recovery_file_manager", false)) {
     g_main_actions.erase(std::remove_if(g_main_actions.begin(), g_main_actions.end(),
-        [](const auto& item) { return item.second == FILE_MANAGER; }), g_main_actions.end());
+        [](const auto& item) {
+          return item.second == FILE_MANAGER || item.second == TERMINAL;
+        }), g_main_actions.end());
   }
   PopulateMenuItems();
 }

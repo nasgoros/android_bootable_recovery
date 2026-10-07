@@ -4,12 +4,13 @@ Open **File manager** from the recovery main menu. Select internal storage, SD o
 USB OTG. Locked/unavailable storage is labelled; this feature does not implement
 PIN/FBE decryption. It exposes storage volumes, not raw partitions or `/dev`.
 
-Tap a folder name to enter it, or the three dots to open **Delete**,
-**Rename**, **Move**, **Details**. Volume keys select rows; Power opens
-the same action menu, with **Open folder** for directories. `../` or Back returns
-to the parent/storage menu. Rename supports a character picker and UTF-8-aware
-backspace; existing Unicode names are retained. Move uses a destination browser
-and confirmation. Delete is permanent and requires confirmation, default Cancel.
+Tap a folder name to enter it, or the three dots to open **Delete**, **Rename**,
+**Move**, **Details**. Volume keys select rows; Power opens the same action menu,
+with **Open folder** for directories. `../` or Back returns to the parent/storage
+menu. Folders are drawn in amber, files in the default colour. **Rename** uses the
+on-screen keyboard (touch screens only); the current name is pre-filled and validated
+on Done. Move uses a destination browser and confirmation. Delete is permanent and
+requires confirmation, default Cancel.
 
 The backend uses directory-relative descriptors, rejects `..`/absolute paths,
 never follows symlinks and refuses child mounts. No operation can delete a storage
@@ -27,6 +28,29 @@ Indonesian or bilingual strings.
 Storage volumes (SD card, USB OTG) opened by the file manager are unmounted when
 it is closed. Leaving one mounted made **Apply update > Choose from sdcard1** fail,
 because the volume manager refuses to mount a volume that is already mounted.
+
+## On-screen keyboard
+
+`ScreenRecoveryUI::EditText()` (`recovery_ui/nasgor_screens.cpp`) shows a touch
+keyboard: QWERTY with one-shot Shift, two symbol pages (`?123`, `#+=`), space,
+Del, Cancel and Done. The layout/hit-test model is `recovery_ui/keyboard.cpp`
+(no graphics dependency). Labels are ASCII because the recovery font has no other
+glyphs. Physical Back cancels.
+
+## Terminal
+
+**Terminal** in the main menu opens a root shell (`/system/bin/sh -i`) on a
+pseudo-terminal (`recovery_ui/terminal.cpp`, `PtyShell`). Output is rendered by a
+small own terminal engine (`TerminalEngine`): text, CR/LF, backspace, tab, the
+common ANSI cursor/erase sequences and scrollback; colours are ignored and
+non-ASCII characters show as `?`. The keyboard adds a control row: **Exit**, Esc,
+Tab, **Ctrl** (next letter becomes Ctrl+letter, e.g. Ctrl+C), and arrow keys.
+Volume up/down or a vertical swipe scrolls back; typing returns to the live screen.
+Exit (or physical Back) hangs up the shell and its children. Without a touch screen
+the menu prints a hint to use `adb shell` (Advanced > Enable ADB) instead.
+
+The keyboard and terminal are nasgorOS code under Apache-2.0, written from scratch;
+TWRP was used only as a behavioural reference (its sources are GPLv3).
 
 ## Mount partitions (RO/RW)
 
@@ -60,14 +84,20 @@ Feature switch: `ro.nasgoros.recovery_file_manager=true` in recovery properties.
 Upstream baseline: LineageOS `37c5d17bec80020b8dbfb0a0d39b4ba93b2b6efd`.
 Keep the feature module separate when rebasing the fork onto LineageOS.
 
-Host regression test (Linux, writable `/tmp` and `/dev/shm` on different filesystems):
+Host regression tests (Linux; from the repository root; `/tmp` and `/dev/shm` on
+different filesystems; the terminal test needs `/bin/sh` and `/bin/stty`):
 
 ```sh
 g++ -std=c++17 -Wall -Wextra -Werror -Wno-ignored-attributes \
   file_manager/operations.cpp file_manager/operations_test.cpp -o /tmp/file-manager-test
-/tmp/file-manager-test
+g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
+  recovery_ui/keyboard.cpp recovery_ui/keyboard_test.cpp -o /tmp/keyboard-test
+g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
+  recovery_ui/terminal.cpp recovery_ui/terminal_test.cpp -o /tmp/terminal-test
+/tmp/file-manager-test && /tmp/keyboard-test && /tmp/terminal-test
 ```
 
 Build `m -j8 recoveryimage`. Check the padded image against the device's recovery
-partition and test boot, touch hitboxes/rotation, physical keys, locked internal
-storage, SD/OTG, and interrupted operations on a device before release.
+partition and test boot, touch hitboxes/rotation (menus, keyboard keys), physical
+keys, locked internal storage, SD/OTG, interrupted operations, and the terminal
+(prompt, Ctrl+C, scrollback, Exit) on a device before release.

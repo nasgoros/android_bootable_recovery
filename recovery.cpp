@@ -676,6 +676,15 @@ change_menu:
         RunFileManager(device);
         break;
 
+      case Device::TERMINAL:
+        // nasgorOS: root shell with an on-screen keyboard.
+        if (ui->HasOnScreenKeyboard()) {
+          ui->RunTerminal();
+        } else {
+          ui->Print("Terminal needs a touch screen. Use Advanced > Enable ADB and adb shell.\n");
+        }
+        break;
+
       case Device::VIEW_RECOVERY_LOGS:
         choose_recovery_file(device);
         break;

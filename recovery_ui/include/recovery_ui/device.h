@@ -74,6 +74,7 @@ class Device {
     WIPE_SYSTEM = 100,
     ENABLE_ADB = 101,
     FILE_MANAGER = 102,
+    TERMINAL = 103,
     MENU_BASE = 200,
     MENU_WIPE = 202,
     MENU_ADVANCED = 203,

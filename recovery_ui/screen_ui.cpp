@@ -209,6 +209,9 @@ int TextMenu::DrawItems(int x, int y, int screen_width, bool long_press) const {
 
     draw_funcs_.SetColor(selected ? UIElement::MENU_SEL_FG : UIElement::MENU);
     std::string label = TextItem(i);
+    // nasgorOS file manager: folders (names ending in '/') are drawn in amber, files
+    // in the default menu colour. Decided before long names are truncated.
+    const bool folder = !label.empty() && label.back() == '/';
     if (HasItemAction(i)) {
       const int action_width = std::max(bar_height, draw_funcs_.MenuCharWidth() * 4);
       const int text_width = screen_width - 2 * x - 4 * padding - action_width;
@@ -220,6 +223,7 @@ int TextMenu::DrawItems(int x, int y, int screen_width, bool long_press) const {
         draw_funcs_.DrawFill(dot_x - dot / 2, center_y + n * dot * 3 - dot / 2, dot, dot);
       }
     }
+    if (folder && !selected) gr_color(0xff, 0xc1, 0x4d, 255);
     offset += draw_funcs_.DrawTextLine(padding * 2 + x, y + offset, label, false /* bold */);
     offset += spacing;
   }
@@ -848,6 +852,12 @@ void ScreenRecoveryUI::draw_screen_locked() {
 
   gr_color(0, 0, 0, 255);
   gr_clear();
+
+  if (custom_screen_) {
+    // nasgorOS full-screen view (on-screen keyboard, terminal).
+    custom_screen_();
+    return;
+  }
 
   draw_menu_and_text_buffer_locked(GetMenuHelpMessage());
   draw_battery_capacity_locked();

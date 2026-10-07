@@ -332,6 +332,11 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
                       const std::function<int(int, bool)>& key_handler) override;
   void SetTitle(const std::vector<std::string>& lines) override;
 
+  // nasgorOS: on-screen keyboard and terminal (recovery_ui/nasgor_screens.cpp).
+  bool HasOnScreenKeyboard() const override { return HasTouchScreen(); }
+  bool EditText(const std::vector<std::string>& headers, std::string* text) override;
+  void RunTerminal() override;
+
   void KeyLongPress(int) override;
 
   void Redraw();
@@ -544,6 +549,13 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   bool rtl_locale_;
 
   std::mutex updateMutex;
+
+  // nasgorOS: when set, draw_screen_locked() draws this full-screen view (keyboard,
+  // terminal) instead of the menu. Guarded by updateMutex.
+  std::function<void()> custom_screen_;
+  // Maps a touch event position to screen coordinates (rotation, overscan).
+  Point TouchToScreen(const Point& p) const;
+  void DrawKeyLabel(int x, int y, int w, int h, const std::string& label) const;
 
   std::thread batt_monitor_thread_;
   std::atomic<bool> batt_monitor_thread_stopped_{ false };

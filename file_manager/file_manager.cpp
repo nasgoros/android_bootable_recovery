@@ -166,29 +166,14 @@ void Browser::Details(const Storage& storage, const std::string& path) {
 }
 bool Browser::RenameInput(const std::string& old, std::string* name) {
   *name = old;
-  const std::vector<std::string> groups{"abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-                                        "0123456789", " ._-()[]+@"};
+  if (!ui_->HasOnScreenKeyboard()) {
+    Message({"Rename needs a touch screen for the on-screen keyboard."});
+    return false;
+  }
   while (!stopped_) {
-    size_t action = Menu({"Rename", DisplayName(*name), "Pick characters to build the name."},
-                        {"Cancel", "Save", "Delete last character", "Clear",
-                         "a-z", "A-Z", "0-9", "Space and symbols"});
-    if (action == 0 || action > 7) return false;
-    if (action == 1) {
-      if (Storage::ValidName(*name)) return true;
-      Message({"Name must be 1-255 bytes, not . or .., without /"});
-    } else if (action == 2 && !name->empty()) {
-      size_t last = name->size() - 1;
-      while (last > 0 && (static_cast<unsigned char>((*name)[last]) & 0xc0) == 0x80) --last;
-      name->resize(last);
-    } else if (action == 3) {
-      name->clear();
-    } else if (action >= 4) {
-      const auto& group = groups[action - 4];
-      std::vector<std::string> chars{"Back"};
-      for (char c : group) chars.push_back(c == ' ' ? "[space]" : std::string(1, c));
-      size_t selected = Menu({"Pick a character", DisplayName(*name)}, chars);
-      if (selected > 0 && selected < chars.size() && name->size() < 255) *name += group[selected - 1];
-    }
+    if (!ui_->EditText({"Rename", "Current: " + DisplayName(old)}, name)) return false;
+    if (Storage::ValidName(*name)) return true;
+    Message({"Name must be 1-255 bytes, not . or .., without /"});
   }
   return false;
 }

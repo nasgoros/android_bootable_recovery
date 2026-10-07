@@ -268,6 +268,18 @@ class RecoveryUI {
     return selected < actions.size() && actions[selected] ? selected | kFileAction : selected;
   }
 
+  // nasgorOS: on-screen keyboard text entry. Returns true when the user confirms
+  // (text holds the result), false when cancelled. Only meaningful when
+  // HasOnScreenKeyboard() is true.
+  virtual bool HasOnScreenKeyboard() const { return false; }
+  virtual bool EditText(const std::vector<std::string>& headers, std::string* text) {
+    (void)headers;
+    (void)text;
+    return false;
+  }
+  // nasgorOS: interactive terminal running /system/bin/sh; returns when the user exits.
+  virtual void RunTerminal() {}
+
   // Displays the localized wipe data menu with pre-generated graphs. If there's an issue
   // with the graphs, falls back to use the backup string headers and items instead. The initial
   // selection is the 0th item in the menu, which is expected to reboot the device without a wipe.
