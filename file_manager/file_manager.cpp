@@ -125,12 +125,12 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
     const auto& volume = available[choice - first_volume];
     // A volume opened earlier in this session is still mounted; mounting it again
     // would fail with -EBUSY.
-    bool mounted = mounted_volumes_.count(volume.mId) > 0;
-    if (!mounted && volume.mMountable && VolumeManager::Instance()->volumeMount(volume.mId)) {
+    bool volume_open = mounted_volumes_.count(volume.mId) > 0;
+    if (!volume_open && volume.mMountable && VolumeManager::Instance()->volumeMount(volume.mId)) {
       mounted_volumes_.insert(volume.mId);
-      mounted = true;
+      volume_open = true;
     }
-    if (!mounted) {
+    if (!volume_open) {
       Message({"Cannot open storage.", "Internal storage may be encrypted/locked.",
                "This recovery does not decrypt PIN/FBE storage.", "For SD/USB: check the connection and filesystem."});
       continue;
