@@ -358,6 +358,21 @@ bool Storage::WriteFileAtomic(const std::string& path, const std::string& data,
   return true;
 }
 
+int Storage::OpenRead(const std::string& path, struct stat* info, std::string* error) const {
+  std::string name;
+  Fd dir(OpenParent(path, &name));
+  if (dir < 0) { Fail(error, "Open folder"); return -1; }
+  int fd = openat(dir, name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  if (fd < 0) { Fail(error, "Open file"); return -1; }
+  if (fstat(fd, info) || !S_ISREG(info->st_mode)) {
+    errno = EINVAL;
+    Fail(error, "Not a regular file");
+    close(fd);
+    return -1;
+  }
+  return fd;
+}
+
 std::string DisplayName(const std::string& name) {
   std::string result;
   for (unsigned char c : name) {

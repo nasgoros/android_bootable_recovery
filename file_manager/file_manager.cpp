@@ -3,7 +3,13 @@
 #include "file_manager.h"
 #include "operations.h"
 #include "partitions.h"
+#include "flash_image.h"
+#include "recovery_utils/roots.h"
+#include <fcntl.h>
+#include <unistd.h>
+#include <fstab/fstab.h>
 #include <ctime>
+#include <strings.h>
 #include <functional>
 #include <memory>
 #include <set>
@@ -87,6 +93,7 @@ class Browser {
   bool RenameInput(const std::string& old, std::string* name);
   void Details(const Storage& storage, const std::string& path);
   void EditFile(const Storage& storage, const std::string& label, const std::string& path);
+  void FlashImage(const Storage& storage, const std::string& label, const std::string& path);
   void Browse(Storage& storage, const std::string& label);
  public:
   void Partitions();
@@ -167,6 +174,64 @@ void Browser::EditFile(const Storage& storage, const std::string& label,
   if (!storage.WriteFileAtomic(path, content, &error)) {
     Message({"Save failed:", error});
   }
+}
+
+void Browser::FlashImage(const Storage& storage, const std::string& label,
+                         const std::string& path) {
+  // Image partitions from the recovery fstab (emmc entries), with the slot suffix on A/B.
+  struct Target { std::string name, device; };
+  std::vector<Target> targets;
+  for (const char* point : {"/boot", "/init_boot", "/vendor_boot", "/recovery", "/dtbo",
+                            "/vbmeta", "/vbmeta_system", "/vbmeta_vendor"}) {
+    const auto* volume = volume_for_mount_point(point);
+    if (!volume || volume->fs_type != "emmc") continue;
+    std::string device = volume->blk_device;
+    std::string name = std::string(point).substr(1);
+    if (volume->fs_mgr_flags.slot_select) {
+      device += fs_mgr_get_slot_suffix();
+      name += fs_mgr_get_slot_suffix();
+    }
+    targets.push_back({name, device});
+  }
+  if (targets.empty()) { Message({"No image partitions found in the recovery fstab."}); return; }
+  std::vector<std::string> items{"Cancel"};
+  for (const auto& target : targets) items.push_back(target.name);
+  size_t choice = Menu({"Flash image", Location(label, path), "Choose the target partition"}, items);
+  if (choice == 0 || choice >= items.size()) return;
+  const Target& target = targets[choice - 1];
+  std::string error;
+  struct stat st {};
+  int fd = storage.OpenRead(path, &st, &error);
+  if (fd < 0) { Message({"Cannot open image:", error}); return; }
+  std::unique_ptr<int, void (*)(int*)> closer(&fd, [](int* f) { close(*f); });
+  char header[16] = {};
+  ssize_t got = pread(fd, header, sizeof(header), 0);
+  const auto kind = recovery::flash::KindForPartition(target.name);
+  if (got < 8 || !recovery::flash::CheckHeader(kind, std::string(header, got), &error)) {
+    Message({"Not flashed:", error.empty() ? std::string("Cannot read the image.") : error});
+    return;
+  }
+  int64_t size = recovery::flash::DeviceSize(target.device, &error);
+  if (size < 0) { Message({error}); return; }
+  if (st.st_size > size) {
+    Message({"Not flashed: the image is larger than the partition.",
+             std::to_string(st.st_size) + " > " + std::to_string(size) + " bytes"});
+    return;
+  }
+  if (!Confirm({"Flash " + target.name + "?", Location(label, path), "To: " + target.device,
+                std::to_string(st.st_size / 1024) + " KB of " + std::to_string(size / 1024) + " KB",
+                "A wrong image can stop the phone from booting."}, "Flash")) {
+    return;
+  }
+  ui_->Print("Flashing %s to %s...\n", DisplayName(path).c_str(), target.name.c_str());
+  int last = -1;
+  bool ok = recovery::flash::Flash(fd, static_cast<uint64_t>(st.st_size), target.device,
+                                   [&](int percent) {
+    if (percent / 10 != last / 10) ui_->Print("  %d%%\n", percent);
+    last = percent;
+  }, &error);
+  Message(ok ? std::vector<std::string>{"Flashed and verified: " + target.name}
+             : std::vector<std::string>{"Flash failed:", error});
 }
 
 void Browser::Details(const Storage& storage, const std::string& path) {
@@ -264,6 +329,9 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     std::vector<std::string> options{"Cancel", "Delete", "Rename", "Move", "Details"};
     if (S_ISDIR(entry.info.st_mode)) options.push_back("Open folder");
     if (S_ISREG(entry.info.st_mode)) options.push_back("Edit");
+    const bool is_image = entry.name.size() > 4 &&
+        strcasecmp(entry.name.c_str() + entry.name.size() - 4, ".img") == 0;
+    if (S_ISREG(entry.info.st_mode) && is_image) options.push_back("Flash image");
     size_t action = Menu({DisplayName(path)}, options);
     if (action == 1) {
       if (Confirm({"Delete permanently?", DisplayName(path),
@@ -292,6 +360,8 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       selection = 0;
     } else if (action == 5 && S_ISREG(entry.info.st_mode)) {
       EditFile(storage, label, path);
+    } else if (action == 6 && S_ISREG(entry.info.st_mode)) {
+      FlashImage(storage, label, path);
     }
   }
 }

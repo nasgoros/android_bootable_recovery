@@ -31,6 +31,8 @@ class Storage {
   // mode, owner and SELinux label. The original is untouched if anything fails.
   bool WriteFileAtomic(const std::string& path, const std::string& data,
                        std::string* error) const;
+  // Opens a regular file (never a symlink) for reading; returns -1 on error.
+  int OpenRead(const std::string& path, struct stat* info, std::string* error) const;
   static bool ValidName(const std::string& name);
  private:
   int OpenDirectory(const std::string& path) const;
