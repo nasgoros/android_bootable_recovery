@@ -26,6 +26,39 @@ std::string Parent(const std::string& path) {
   auto slash = path.rfind('/');
   return slash == std::string::npos ? "" : path.substr(0, slash);
 }
+// Partition roots are labelled like device paths ("/", "/system", "/product");
+// storage volumes keep "<label>:/<folder>".
+std::string Location(const std::string& label, const std::string& folder) {
+  if (!label.empty() && label[0] == '/') {
+    std::string base = label == "/" ? "" : label;
+    return base + "/" + DisplayName(folder);
+  }
+  return label + ":/" + DisplayName(folder);
+}
+bool IsDirectory(const std::string& path) {
+  struct stat st {};
+  return lstat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+struct Root {
+  std::string label;  // "/", "/system", "/product", ...
+  std::string path;   // where it is mounted in recovery
+};
+// Only partitions mounted read-write are offered for browsing; read-only ones are
+// hidden. On system-as-root devices the system partition holds the whole root
+// filesystem, so it appears as "/" and its system/ folder as "/system".
+std::vector<Root> WritablePartitionRoots() {
+  std::vector<Root> roots;
+  for (const auto& part : recovery::partitions::List()) {
+    if (recovery::partitions::GetState(part) != recovery::partitions::State::kReadWrite) continue;
+    if (part.name == "system" && IsDirectory(part.mount_point + "/system")) {
+      roots.push_back({"/", part.mount_point});
+      roots.push_back({"/system", part.mount_point + "/system"});
+    } else {
+      roots.push_back({"/" + part.name, part.mount_point});
+    }
+  }
+  return roots;
+}
 class Browser {
  public:
   explicit Browser(Device* device) : ui_(device->GetUI()),
@@ -58,17 +91,11 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
   while (!stopped_) {
     std::vector<VolumeInfo> volumes;
     VolumeManager::Instance()->getVolumeInfo(volumes);
-    std::vector<std::string> items{"Kembali / Back", "Refresh storage",
-                                   "Mount partisi (RO/RW) / Mount partitions"};
-    // Mounted OS partitions are listed first and opened directly.
-    std::vector<recovery::partitions::Partition> mounted_parts;
-    for (const auto& part : recovery::partitions::List()) {
-      auto state = recovery::partitions::GetState(part);
-      if (state == recovery::partitions::State::kUnmounted) continue;
-      mounted_parts.push_back(part);
-      items.push_back("Partisi " + part.name + " [" + recovery::partitions::StateLabel(state) + "]");
-    }
-    const size_t first_volume = 3 + mounted_parts.size();
+    std::vector<std::string> items{"Kembali / Back", "Refresh storage"};
+    // Partitions mounted RW from "Mount partitions" (main menu) are listed first.
+    const auto roots = WritablePartitionRoots();
+    for (const auto& root : roots) items.push_back(root.label + "  [RW]");
+    const size_t first_volume = 2 + roots.size();
     std::vector<VolumeInfo> available;
     for (const auto& volume : volumes) {
       available.push_back(volume);
@@ -76,15 +103,15 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
                       (volume.mMountable ? "" : " [locked/unavailable]"));
     }
     size_t choice = Menu({"File manager - Storage", "Internal storage, SD card, USB OTG",
-                          "or a mounted system partition"}, items);
+                          "Partisi muncul di sini setelah di-mount RW lewat",
+                          "menu utama > Mount partitions (RO/RW)"}, items);
     if (choice == 1 || choice == static_cast<size_t>(Device::kRefresh)) continue;
-    if (choice == 2) { Partitions(); continue; }
     if (choice < 2 || choice >= items.size()) return nullptr;
     if (choice < first_volume) {
-      const auto& part = mounted_parts[choice - 3];
-      auto storage = std::make_unique<Storage>(part.mount_point);
-      if (!storage->valid()) { Message({"Partisi tidak terbaca: " + part.mount_point}); continue; }
-      *label = part.name;
+      const auto& root = roots[choice - 2];
+      auto storage = std::make_unique<Storage>(root.path);
+      if (!storage->valid()) { Message({"Partisi tidak terbaca: " + root.path}); continue; }
+      *label = root.label;
       return storage;
     }
     const auto& volume = available[choice - first_volume];
@@ -163,7 +190,7 @@ bool Browser::Destination(std::unique_ptr<Storage>* storage, std::string* folder
     for (const auto& entry : entries) {
       if (S_ISDIR(entry.info.st_mode)) { dirs.push_back(entry.name); items.push_back(DisplayName(entry.name) + "/"); }
     }
-    size_t choice = Menu({"Pilih tujuan / Destination", *label + ":/" + DisplayName(*folder)}, items);
+    size_t choice = Menu({"Pilih tujuan / Destination", Location(*label, *folder)}, items);
     if (choice == 1) return true;
     if (choice == static_cast<size_t>(Device::kRefresh)) continue;
     if (choice == 2 || choice == static_cast<size_t>(Device::kGoBack)) {
@@ -194,7 +221,7 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       actions.push_back(true);
     }
     if (selection >= items.size()) selection = 0;
-    size_t result = ui_->ShowFileMenu({"File manager", label + ":/" + DisplayName(folder),
+    size_t result = ui_->ShowFileMenu({"File manager", Location(label, folder),
                                       "Ketuk folder: buka | tiga titik: aksi", "Volume: pilih | Power: aksi"},
                                      items, actions, selection, keys_);
     if (result == static_cast<size_t>(Device::kRefresh)) continue;
@@ -230,8 +257,8 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       std::unique_ptr<Storage> dest;
       std::string dest_folder, dest_label;
       if (Destination(&dest, &dest_folder, &dest_label) &&
-          Confirm({"Move", label + ":/" + DisplayName(path),
-                   "To: " + dest_label + ":/" + DisplayName(Join(dest_folder, entry.name)),
+          Confirm({"Move", Location(label, path),
+                   "To: " + Location(dest_label, Join(dest_folder, entry.name)),
                    "Nama yang sudah ada tidak akan ditimpa."}, "Move here")) {
         ui_->Print("Moving %s; please keep storage connected...\n", DisplayName(path).c_str());
         if (!storage.Move(path, *dest, Join(dest_folder, entry.name), &error)) Message({error});
@@ -251,7 +278,8 @@ void Browser::Partitions() {
                       recovery::partitions::StateLabel(recovery::partitions::GetState(part)) + "]");
     }
     size_t choice = Menu({"Mount partisi / Mount partitions",
-                          "RW: perubahan langsung ke partisi / changes are written directly"},
+                          "RW: perubahan langsung ke partisi / changes are written directly",
+                          "Partisi RW tampil di File manager (/, /system, /product, ...)"},
                          items);
     if (choice == static_cast<size_t>(Device::kRefresh)) continue;
     if (choice == 0 || choice >= items.size()) return;

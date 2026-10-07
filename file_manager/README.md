@@ -23,12 +23,18 @@ filesystems. Directory details report the directory entry size, not recursive si
 
 ## Mount partitions (RO/RW)
 
-**File manager > Mount partisi (RO/RW)** (also Advanced > **Mount partitions**)
+**Mount partitions (RO/RW)** is a separate entry in the recovery main menu. It
 lists system, system_ext, product, vendor and odm from the recovery fstab. Each
 can be mounted read-only or read-write below `/mnt/<name>`, or unmounted.
 Dynamic partitions are mapped first. Read-write clears the block device
-read-only flag and remounts; it asks for confirmation. Mounted partitions appear
-in the storage list and are browsed with the same file actions.
+read-only flag and remounts; it asks for confirmation.
+
+Only partitions mounted **read-write** appear in the File manager storage list;
+read-only or unmounted ones are hidden. They are labelled like device paths:
+on system-as-root devices (merlinx) the system partition is shown as **`/`**
+(the root filesystem) and its `system/` folder as **`/system`**; other partitions
+appear as `/product`, `/system_ext`, `/vendor`, `/odm`. Folders are deleted
+recursively (files, subfolders and symlinks; symlink targets are untouched).
 
 Moving a file *into* a partition copies it without its SELinux label; deleting
 or renaming existing files is safer. merlinx images are ext4 without shared
@@ -36,7 +42,8 @@ blocks and its vbmeta disables hashtree checks, so RW changes boot; other
 devices (erofs, shared blocks, enforced verity) may not support RW.
 
 Example: to disable addon.d (scripts that survive a ROM flash, e.g. LiteGapps),
-mount `system` RW and delete or rename `system/addon.d` in the file manager.
+mount `system` RW in **Mount partitions**, then in the File manager open `/system`
+and delete or rename `addon.d`.
 
 Before install, wipe, rescue/fastboot or reboot, every partition mounted from
 this menu is unmounted (`IsPartitionWritingAction` in recovery.cpp). On user

@@ -91,8 +91,18 @@ int main() {
   assert(recovery::files::DisplayName("a\nb") == "a?b");
   assert(a.Remove("link", &error));
   assert(Read(external + "/protected") == "outside");
+  // Folder deletion: nested folders, files and symlinks are removed recursively,
+  // and a symlink inside the folder is unlinked without touching its target.
+  fs::create_directories(root + "/deltree/a/b/c");
+  Write(root + "/deltree/a/file.txt", "x");
+  Write(root + "/deltree/a/b/c/deep.txt", "y");
+  Write(external + "/target.txt", "outside");
+  fs::create_symlink(external + "/target.txt", root + "/deltree/a/b/link");
+  assert(a.Remove("deltree", &error));
+  assert(!fs::exists(root + "/deltree"));
+  assert(Read(external + "/target.txt") == "outside");
   fs::remove_all(root);
   fs::remove_all(external);
   fs::remove_all(cross);
-  std::cout << "PASS: rename, recursive delete, cross-filesystem move, collisions, symlinks, traversal, ancestry, Unicode\n";
+  std::cout << "PASS: rename, recursive delete (nested folders), cross-filesystem move, collisions, symlinks, traversal, ancestry, Unicode\n";
 }
