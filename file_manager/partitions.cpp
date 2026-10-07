@@ -11,6 +11,7 @@
 #include <android-base/logging.h>
 #include <android-base/strings.h>
 #include <fs_mgr.h>
+#include <fs_mgr/roots.h>
 #include <fstab/fstab.h>
 
 #include "install/snapshot_utils.h"
