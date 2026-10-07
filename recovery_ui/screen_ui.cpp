@@ -862,7 +862,7 @@ void ScreenRecoveryUI::draw_menu_and_text_buffer_locked(
     auto& logo = fastbootd_logo_enabled_ ? fastbootd_logo_ : lineage_logo_;
     const int logo_width = fastbootd_logo_enabled_ ? gr_get_width(logo.get())
         : static_cast<int>(sizeof(kRecoveryTitle) - 1) * char_width_;
-    auto logo_height = gr_get_height(logo.get());
+    const int logo_height = static_cast<int>(gr_get_height(logo.get()));
     auto centered_x = ScreenWidth() / 2 - logo_width / 2;
     if (fastbootd_logo_enabled_) {
       DrawSurface(logo.get(), 0, 0, logo_width, logo_height, centered_x, y);
