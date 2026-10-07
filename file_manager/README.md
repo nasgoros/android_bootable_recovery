@@ -37,6 +37,14 @@ Del, Cancel and Done. The layout/hit-test model is `recovery_ui/keyboard.cpp`
 (no graphics dependency). Labels are ASCII because the recovery font has no other
 glyphs. Physical Back cancels.
 
+## Startup
+
+While recovery starts (mounting `/data` for adb keys on userdebug builds, USB setup
+and the volume scan), an animated **Starting recovery...** screen is shown
+(`ShowBusy`/`HideBusy`) instead of a frozen screen; it ends when the volume manager
+is up or a menu is shown. Touches during startup are discarded. Each step logs its
+duration as `nasgorOS startup: <step> took N ms` (Advanced > View recovery logs).
+
 ## Text editor
 
 Three dots on a file > **Edit** opens it in a text editor (`EditDocument`,

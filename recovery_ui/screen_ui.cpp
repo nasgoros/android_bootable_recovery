@@ -439,6 +439,7 @@ ScreenRecoveryUI::ScreenRecoveryUI()
       is_graphics_available(false) {}
 
 ScreenRecoveryUI::~ScreenRecoveryUI() {
+  HideBusy();
   batt_monitor_thread_stopped_ = true;
   if (batt_monitor_thread_.joinable()) {
     batt_monitor_thread_.join();
@@ -1631,6 +1632,9 @@ int ScreenRecoveryUI::ScrollMenu(int updown) {
 size_t ScreenRecoveryUI::ShowMenu(std::unique_ptr<Menu>&& menu, bool menu_only,
                                   const std::function<int(int, bool)>& key_handler,
                                   bool refreshable) {
+  // nasgorOS: stop the startup busy animation once a menu is ready.
+  HideBusy();
+
   // Throw away keys pressed previously, so user doesn't accidentally trigger menu items.
   FlushKeys();
 

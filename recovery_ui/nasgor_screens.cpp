@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -562,4 +563,66 @@ bool ScreenRecoveryUI::EditDocument(const std::string& title, std::string* conte
   custom_screen_ = nullptr;
   update_screen_locked();
   return saved;
+}
+
+// ---------------------------------------------------------------------------
+// Busy animation for slow startup steps
+
+void ScreenRecoveryUI::ShowBusy(const std::string& message) {
+  HideBusy();
+  {
+    std::lock_guard<std::mutex> lg(updateMutex);
+    busy_message_ = message;
+    busy_frame_ = 0;
+    custom_screen_ = [this]() {
+      const int width = ScreenWidth();
+      const int center_y = ScreenHeight() / 2;
+      // Title.
+      const std::string title = "NasgorOS Recovery";
+      SetColor(UIElement::HEADER);
+      gr_text(gr_menu_font(), (width - static_cast<int>(title.size()) * menu_char_width_) / 2,
+              center_y - menu_char_height_ * 3, title.c_str(), true);
+      // Message with cycling dots; the dots are padded so the text does not jump.
+      const std::string dots = std::string(busy_frame_ / 3 % 4, '.') +
+                               std::string(3 - busy_frame_ / 3 % 4, ' ');
+      const std::string text = busy_message_ + dots;
+      gr_color(0xe0, 0xe0, 0xe0, 255);
+      gr_text(gr_menu_font(), (width - static_cast<int>(text.size()) * menu_char_width_) / 2,
+              center_y - menu_char_height_, text.c_str(), false);
+      // Indeterminate bar: a block sweeping across a track.
+      const int track_w = width * 6 / 10;
+      const int track_x = (width - track_w) / 2;
+      const int track_y = center_y + menu_char_height_;
+      const int track_h = std::max(6, menu_char_height_ / 4);
+      gr_color(0x26, 0x26, 0x26, 255);
+      gr_fill(track_x, track_y, track_x + track_w, track_y + track_h);
+      const int block_w = track_w / 4;
+      const int period = 24;  // frames per sweep
+      const int phase = busy_frame_ % (period * 2);
+      const int step = phase < period ? phase : period * 2 - phase;  // there and back
+      const int block_x = track_x + (track_w - block_w) * step / period;
+      gr_color(0x7c, 0x4d, 0xff, 255);
+      gr_fill(block_x, track_y, block_x + block_w, track_y + track_h);
+    };
+    update_screen_locked();
+  }
+  busy_running_ = true;
+  busy_thread_ = std::thread([this]() {
+    while (busy_running_) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      std::lock_guard<std::mutex> lg(updateMutex);
+      if (!busy_running_) break;
+      ++busy_frame_;
+      update_screen_locked();
+    }
+  });
+}
+
+void ScreenRecoveryUI::HideBusy() {
+  if (!busy_thread_.joinable()) return;
+  busy_running_ = false;
+  busy_thread_.join();
+  std::lock_guard<std::mutex> lg(updateMutex);
+  custom_screen_ = nullptr;
+  update_screen_locked();
 }

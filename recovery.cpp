@@ -28,6 +28,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -894,9 +895,16 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
 
   VolumeClient* volclient = new VolumeClient(device);
   VolumeManager* volmgr = VolumeManager::Instance();
+  auto volmgr_start = std::chrono::steady_clock::now();
   if (!volmgr->start(volclient)) {
     printf("Failed to start volume manager\n");
   }
+  LOG(INFO) << "nasgorOS startup: volume manager took "
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - volmgr_start).count()
+            << " ms";
+  // nasgorOS: end of the startup busy animation (install/sideload flows show their own UI).
+  ui->HideBusy();
 
   // Set background string to "installing security update" for security update,
   // otherwise set it to "installing system update".

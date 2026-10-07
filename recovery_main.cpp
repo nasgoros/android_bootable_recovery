@@ -32,6 +32,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -511,6 +512,17 @@ int main(int argc, char** argv) {
 
   ui->SetBackground(RecoveryUI::NONE);
   if (show_text) ui->ShowText(true);
+  // nasgorOS: the next steps (mounting /data for adb keys, USB setup, volume scan)
+  // take a moment before the first menu; show that recovery is working.
+  if (show_text) ui->ShowBusy("Starting recovery");
+  auto startup_step = std::chrono::steady_clock::now();
+  auto log_startup_step = [&startup_step](const char* step) {
+    auto now = std::chrono::steady_clock::now();
+    LOG(INFO) << "nasgorOS startup: " << step << " took "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(now - startup_step).count()
+              << " ms";
+    startup_step = now;
+  };
 
   LOG(INFO) << "Starting recovery (pid " << getpid() << ") on " << ctime(&start);
   LOG(INFO) << "locale is [" << locale << "]";
@@ -531,9 +543,11 @@ int main(int argc, char** argv) {
   if (get_build_type() != "user" && !fastboot) {
     copy_userdata_files();
     android::base::SetProperty("service.adb.root", "1");
+    log_startup_step("copy adb keys from /data");
   }
 
   device->InitDevice();
+  log_startup_step("InitDevice");
 
   Device::BuiltinAction next_recovery_action = Device::NO_ACTION;
   while (true) {
@@ -553,6 +567,7 @@ int main(int argc, char** argv) {
       if (!SetUsbConfig(usb_config)) {
         LOG(ERROR) << "Failed to set USB config to " << usb_config;
       }
+      log_startup_step("USB config");
     }
 
     Device::BuiltinAction ret;

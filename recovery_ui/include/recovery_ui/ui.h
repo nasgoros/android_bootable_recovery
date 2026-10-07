@@ -277,6 +277,10 @@ class RecoveryUI {
     (void)text;
     return false;
   }
+  // nasgorOS: animated "busy" screen for slow startup steps (no menu yet). HideBusy()
+  // is also called automatically when a menu is shown.
+  virtual void ShowBusy(const std::string& message) { (void)message; }
+  virtual void HideBusy() {}
   // nasgorOS: interactive terminal running /system/bin/sh; returns when the user exits.
   virtual void RunTerminal() {}
   // nasgorOS: text editor with the on-screen keyboard. Returns true when the user

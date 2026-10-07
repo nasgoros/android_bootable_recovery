@@ -336,6 +336,8 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   bool HasOnScreenKeyboard() const override { return HasTouchScreen(); }
   bool EditText(const std::vector<std::string>& headers, std::string* text) override;
   void RunTerminal() override;
+  void ShowBusy(const std::string& message) override;
+  void HideBusy() override;
   bool EditDocument(const std::string& title, std::string* content, std::string* error) override;
 
   void KeyLongPress(int) override;
@@ -557,6 +559,12 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   // Maps a touch event position to screen coordinates (rotation, overscan).
   Point TouchToScreen(const Point& p) const;
   void DrawKeyLabel(int x, int y, int w, int h, const std::string& label) const;
+  // Busy animation (ShowBusy/HideBusy); busy_message_ and busy_frame_ are guarded by
+  // updateMutex.
+  std::thread busy_thread_;
+  std::atomic<bool> busy_running_{ false };
+  std::string busy_message_;
+  int busy_frame_ = 0;
 
   std::thread batt_monitor_thread_;
   std::atomic<bool> batt_monitor_thread_stopped_{ false };
