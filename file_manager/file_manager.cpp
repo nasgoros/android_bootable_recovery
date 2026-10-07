@@ -86,6 +86,7 @@ class Browser {
   bool Destination(std::unique_ptr<Storage>* storage, std::string* folder, std::string* label);
   bool RenameInput(const std::string& old, std::string* name);
   void Details(const Storage& storage, const std::string& path);
+  void EditFile(const Storage& storage, const std::string& label, const std::string& path);
   void Browse(Storage& storage, const std::string& label);
  public:
   void Partitions();
@@ -148,6 +149,26 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
   }
   return nullptr;
 }
+// Text files up to this size can be edited (configuration files, scripts).
+constexpr size_t kMaxEditSize = 256 * 1024;
+
+void Browser::EditFile(const Storage& storage, const std::string& label,
+                       const std::string& path) {
+  std::string content, error;
+  if (!storage.ReadFile(path, kMaxEditSize, &content, &error)) {
+    Message({"Cannot open file:", error});
+    return;
+  }
+  if (!ui_->EditDocument(Location(label, path), &content, &error)) {
+    if (!error.empty()) Message({error});
+    return;
+  }
+  ui_->Print("Saving %s...\n", DisplayName(path).c_str());
+  if (!storage.WriteFileAtomic(path, content, &error)) {
+    Message({"Save failed:", error});
+  }
+}
+
 void Browser::Details(const Storage& storage, const std::string& path) {
   struct stat st {};
   std::string error;
@@ -242,6 +263,7 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     if (!overflow && S_ISDIR(entry.info.st_mode)) { folder = path; selection = 0; continue; }
     std::vector<std::string> options{"Cancel", "Delete", "Rename", "Move", "Details"};
     if (S_ISDIR(entry.info.st_mode)) options.push_back("Open folder");
+    if (S_ISREG(entry.info.st_mode)) options.push_back("Edit");
     size_t action = Menu({DisplayName(path)}, options);
     if (action == 1) {
       if (Confirm({"Delete permanently?", DisplayName(path),
@@ -265,7 +287,12 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       }
     } else if (action == 4) {
       Details(storage, path);
-    } else if (action == 5 && S_ISDIR(entry.info.st_mode)) { folder = path; selection = 0; }
+    } else if (action == 5 && S_ISDIR(entry.info.st_mode)) {
+      folder = path;
+      selection = 0;
+    } else if (action == 5 && S_ISREG(entry.info.st_mode)) {
+      EditFile(storage, label, path);
+    }
   }
 }
 void Browser::Partitions() {

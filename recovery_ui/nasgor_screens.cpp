@@ -25,6 +25,7 @@
 #include "recovery_ui/keyboard.h"
 #include "recovery_ui/screen_ui.h"
 #include "recovery_ui/terminal.h"
+#include "recovery_ui/text_editor.h"
 
 using recovery::keyboard::KeyType;
 using recovery::keyboard::Layout;
@@ -103,7 +104,7 @@ bool ScreenRecoveryUI::EditText(const std::vector<std::string>& headers, std::st
   Mode mode = Mode::kLower;
   std::string value = *text;
   std::vector<PlacedKey> keys =
-      Layout(mode, false, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top, gap);
+      Layout(mode, recovery::keyboard::Variant::kTextEntry, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top, gap);
 
   auto draw = [&]() {
     int y = margin_height_;
@@ -177,7 +178,7 @@ bool ScreenRecoveryUI::EditText(const std::vector<std::string>& headers, std::st
           break;
       }
       if (mode != before) {
-        keys = Layout(mode, false, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top,
+        keys = Layout(mode, recovery::keyboard::Variant::kTextEntry, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top,
                       gap);
       }
     }
@@ -219,7 +220,7 @@ void ScreenRecoveryUI::RunTerminal() {
   bool ctrl = false;
   size_t scroll_back = 0;
   std::vector<PlacedKey> keys =
-      Layout(mode, true, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top, gap);
+      Layout(mode, recovery::keyboard::Variant::kTerminal, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top, gap);
 
   auto draw = [&]() {
     SetColor(UIElement::HEADER);
@@ -359,7 +360,7 @@ void ScreenRecoveryUI::RunTerminal() {
               break;
           }
           if (mode != before) {
-            keys = Layout(mode, true, 0, keyboard_top, ScreenWidth(),
+            keys = Layout(mode, recovery::keyboard::Variant::kTerminal, 0, keyboard_top, ScreenWidth(),
                           ScreenHeight() - keyboard_top, gap);
           }
           if (!input.empty()) scroll_back = 0;
@@ -387,4 +388,178 @@ void ScreenRecoveryUI::RunTerminal() {
   std::lock_guard<std::mutex> lg(updateMutex);
   custom_screen_ = nullptr;
   update_screen_locked();
+}
+
+// ---------------------------------------------------------------------------
+// Text editor
+
+bool ScreenRecoveryUI::EditDocument(const std::string& title, std::string* content,
+                                    std::string* error) {
+  using recovery::editor::TextBuffer;
+  using recovery::keyboard::Variant;
+
+  error->clear();
+  if (!HasOnScreenKeyboard()) {
+    *error = "The text editor needs a touch screen.";
+    return false;
+  }
+  TextBuffer buffer;
+  if (!buffer.Load(*content, error)) return false;
+
+  const int gap = std::max(4, ScreenWidth() / 180);
+  const int keyboard_top = ScreenHeight() * 52 / 100;
+  const int text_x = std::max(margin_width_ / 2, 8);
+  const int title_y = margin_height_;
+  const int text_top = title_y + char_height_ + gap * 2;
+  const size_t cols = std::max((ScreenWidth() - text_x * 2) / char_width_, 10);
+  const size_t rows = std::max((keyboard_top - gap - text_top) / char_height_, 3);
+
+  Mode mode = Mode::kLower;
+  std::vector<PlacedKey> keys =
+      Layout(mode, Variant::kEditor, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top,
+             gap);
+  size_t top_row = 0;        // first visible screen row
+  bool exit_armed = false;   // Exit tapped once with unsaved changes
+  std::string notice;        // replaces the status line until the next action
+
+  auto keep_cursor_visible = [&]() {
+    const auto layout = buffer.Layout(cols);
+    const size_t row = buffer.CursorRow(layout);
+    if (row < top_row) top_row = row;
+    if (row >= top_row + rows) top_row = row - rows + 1;
+  };
+
+  auto draw = [&]() {
+    const auto layout = buffer.Layout(cols);
+    // Title and status.
+    std::string status = notice;
+    if (status.empty()) {
+      status = "Ln " + std::to_string(buffer.cursor_line() + 1) + ", Col " +
+               std::to_string(buffer.CursorColumn()) + (buffer.modified() ? "  [modified]" : "");
+    }
+    std::string header = title.size() + status.size() + 3 <= cols
+                             ? title + " - " + status
+                             : status;
+    SetColor(notice.empty() ? UIElement::HEADER : UIElement::BATTERY_LOW);
+    gr_text(gr_sys_font(), text_x, title_y, header.substr(0, cols).c_str(), false);
+    // Text with the cursor block.
+    const size_t cursor_row = buffer.CursorRow(layout);
+    if (cursor_row >= top_row && cursor_row < top_row + rows) {
+      const int x = text_x + static_cast<int>(buffer.CursorRowColumn(layout)) * char_width_;
+      const int y = text_top + static_cast<int>(cursor_row - top_row) * char_height_;
+      gr_color(0x7c, 0x4d, 0xff, 255);
+      gr_fill(x, y, x + std::max(char_width_ / 4, 2), y + char_height_);
+    }
+    gr_color(0xe0, 0xe0, 0xe0, 255);
+    for (size_t i = 0; i < rows && top_row + i < layout.size(); ++i) {
+      const auto& row = layout[top_row + i];
+      const std::string text = TextBuffer::Display(buffer.line(row.line), row.start, row.end);
+      gr_text(gr_sys_font(), text_x, text_top + static_cast<int>(i) * char_height_, text.c_str(),
+              false);
+    }
+    // Keyboard.
+    gr_color(0x10, 0x10, 0x10, 255);
+    gr_fill(0, keyboard_top, ScreenWidth(), ScreenHeight());
+    for (const auto& key : keys) {
+      bool highlighted = key.key.type == KeyType::kSave ||
+                         (key.key.type == KeyType::kShift && mode == Mode::kUpper) ||
+                         (key.key.type == KeyType::kExit && exit_armed);
+      FillKey(key, highlighted);
+      DrawKeyLabel(key.x, key.y, key.w, key.h, key.key.label);
+    }
+  };
+
+  {
+    std::lock_guard<std::mutex> lg(updateMutex);
+    custom_screen_ = draw;
+    update_screen_locked();
+  }
+  FlushKeys();
+
+  bool saved = false;
+  bool done = false;
+  while (!done) {
+    InputEvent evt = WaitInputEvent();
+    if (evt.type() == EventType::EXTRA) {
+      if (evt.key() == static_cast<int>(KeyError::INTERRUPTED)) break;
+      continue;
+    }
+    std::lock_guard<std::mutex> lg(updateMutex);
+    bool exit_tapped = false;
+    notice.clear();
+    if (evt.type() == EventType::KEY) {
+      if (evt.key() == KEY_VOLUMEUP || evt.key() == KEY_SCROLLUP) {
+        buffer.MoveRows(-static_cast<int>(rows), cols);
+      } else if (evt.key() == KEY_VOLUMEDOWN || evt.key() == KEY_SCROLLDOWN) {
+        buffer.MoveRows(static_cast<int>(rows), cols);
+      } else if (evt.key() == KEY_BACK) {
+        exit_tapped = true;
+      }
+    } else {
+      const Point p = TouchToScreen(evt.pos());
+      if (p.y() >= text_top && p.y() < keyboard_top - gap) {
+        // Tap in the text: move the cursor there.
+        const auto layout = buffer.Layout(cols);
+        const size_t row = top_row + static_cast<size_t>((p.y() - text_top) / char_height_);
+        const size_t col =
+            static_cast<size_t>(std::max(0, (p.x() - text_x + char_width_ / 2) / char_width_));
+        if (row < layout.size()) buffer.SetCursor(layout, row, col);
+      } else if (const PlacedKey* hit = recovery::keyboard::HitTest(keys, p.x(), p.y())) {
+        const Mode before = mode;
+        switch (hit->key.type) {
+          case KeyType::kChar:
+            buffer.Insert(hit->key.text);
+            if (mode == Mode::kUpper) mode = Mode::kLower;
+            break;
+          case KeyType::kSpace: buffer.Insert(" "); break;
+          case KeyType::kEnter: buffer.Newline(); break;
+          case KeyType::kBackspace: buffer.Backspace(); break;
+          case KeyType::kLeft: buffer.MoveLeft(); break;
+          case KeyType::kRight: buffer.MoveRight(); break;
+          case KeyType::kUp: buffer.MoveRows(-1, cols); break;
+          case KeyType::kDown: buffer.MoveRows(1, cols); break;
+          case KeyType::kHome: buffer.Home(); break;
+          case KeyType::kEnd: buffer.End(); break;
+          case KeyType::kPageUp: buffer.MoveRows(-static_cast<int>(rows), cols); break;
+          case KeyType::kPageDown: buffer.MoveRows(static_cast<int>(rows), cols); break;
+          case KeyType::kSave:
+            *content = buffer.Serialize();
+            saved = true;
+            done = true;
+            break;
+          case KeyType::kExit: exit_tapped = true; break;
+          case KeyType::kShift:
+          case KeyType::kSymbols:
+          case KeyType::kMoreSymbols:
+            mode = recovery::keyboard::NextMode(mode, hit->key.type);
+            break;
+          default:
+            break;
+        }
+        if (mode != before) {
+          keys = Layout(mode, Variant::kEditor, 0, keyboard_top, ScreenWidth(),
+                        ScreenHeight() - keyboard_top, gap);
+        }
+      }
+    }
+    if (exit_tapped) {
+      if (!buffer.modified() || exit_armed) {
+        done = true;
+      } else {
+        exit_armed = true;
+        notice = "Unsaved changes: tap Exit again to discard, or Save";
+      }
+    } else if (!done) {
+      exit_armed = false;
+    }
+    if (!done) {
+      keep_cursor_visible();
+      update_screen_locked();
+    }
+  }
+
+  std::lock_guard<std::mutex> lg(updateMutex);
+  custom_screen_ = nullptr;
+  update_screen_locked();
+  return saved;
 }

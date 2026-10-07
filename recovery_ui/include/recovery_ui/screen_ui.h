@@ -336,6 +336,7 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   bool HasOnScreenKeyboard() const override { return HasTouchScreen(); }
   bool EditText(const std::vector<std::string>& headers, std::string* text) override;
   void RunTerminal() override;
+  bool EditDocument(const std::string& title, std::string* content, std::string* error) override;
 
   void KeyLongPress(int) override;
 

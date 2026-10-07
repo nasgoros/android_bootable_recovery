@@ -18,9 +18,17 @@ Key Special(KeyType type, const std::string& label, float weight) {
 
 }  // namespace
 
-std::vector<std::vector<Key>> Rows(Mode mode, bool terminal) {
+std::vector<std::vector<Key>> Rows(Mode mode, Variant variant) {
   std::vector<std::vector<Key>> rows;
-  if (terminal) {
+  const bool terminal = variant == Variant::kTerminal;
+  const bool newline_enter = variant != Variant::kTextEntry;
+  if (variant == Variant::kEditor) {
+    rows.push_back({Special(KeyType::kSave, "Save", 1.3f), Special(KeyType::kExit, "Exit", 1.3f),
+                    Special(KeyType::kLeft, "Lt", 1.0f), Special(KeyType::kUp, "Up", 1.0f),
+                    Special(KeyType::kDown, "Dn", 1.0f), Special(KeyType::kRight, "Rt", 1.0f),
+                    Special(KeyType::kHome, "Hm", 1.0f), Special(KeyType::kEnd, "End", 1.0f),
+                    Special(KeyType::kPageUp, "PU", 1.0f), Special(KeyType::kPageDown, "PD", 1.0f)});
+  } else if (terminal) {
     rows.push_back({Special(KeyType::kExit, "Exit", 1.2f), Special(KeyType::kEscape, "Esc", 1.0f),
                     Special(KeyType::kTab, "Tab", 1.0f), Special(KeyType::kCtrl, "Ctrl", 1.0f),
                     Special(KeyType::kLeft, "Lt", 1.0f), Special(KeyType::kUp, "Up", 1.0f),
@@ -53,17 +61,17 @@ std::vector<std::vector<Key>> Rows(Mode mode, bool terminal) {
 
   const bool letters = mode == Mode::kLower || mode == Mode::kUpper;
   std::vector<Key> bottom{Special(KeyType::kSymbols, letters ? "?123" : "ABC", 1.5f)};
-  if (!terminal) bottom.push_back(Special(KeyType::kCancel, "Cancel", 1.6f));
+  if (!newline_enter) bottom.push_back(Special(KeyType::kCancel, "Cancel", 1.6f));
   bottom.push_back({KeyType::kChar, "/", "/", 1.0f});
-  bottom.push_back(Special(KeyType::kSpace, "space", terminal ? 4.5f : 3.0f));
+  bottom.push_back(Special(KeyType::kSpace, "space", newline_enter ? 4.5f : 3.0f));
   bottom.push_back({KeyType::kChar, ".", ".", 1.0f});
-  bottom.push_back(Special(KeyType::kEnter, terminal ? "Enter" : "Done", 1.6f));
+  bottom.push_back(Special(KeyType::kEnter, newline_enter ? "Enter" : "Done", 1.6f));
   rows.push_back(bottom);
   return rows;
 }
 
-std::vector<PlacedKey> Layout(Mode mode, bool terminal, int x, int y, int w, int h, int gap) {
-  const auto rows = Rows(mode, terminal);
+std::vector<PlacedKey> Layout(Mode mode, Variant variant, int x, int y, int w, int h, int gap) {
+  const auto rows = Rows(mode, variant);
   std::vector<PlacedKey> placed;
   if (rows.empty() || w <= 0 || h <= 0) return placed;
   const int row_count = static_cast<int>(rows.size());

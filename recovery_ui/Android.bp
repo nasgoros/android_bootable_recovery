@@ -38,6 +38,7 @@ cc_library {
         "screen_ui.cpp",
         "stub_ui.cpp",
         "terminal.cpp",
+        "text_editor.cpp",
         "ui.cpp",
         "vr_ui.cpp",
         "wear_ui.cpp",

@@ -5,7 +5,7 @@ USB OTG. Locked/unavailable storage is labelled; this feature does not implement
 PIN/FBE decryption. It exposes storage volumes, not raw partitions or `/dev`.
 
 Tap a folder name to enter it, or the three dots to open **Delete**, **Rename**,
-**Move**, **Details**. Volume keys select rows; Power opens the same action menu,
+**Move**, **Details** (and **Edit** for files). Volume keys select rows; Power opens the same action menu,
 with **Open folder** for directories. `../` or Back returns to the parent/storage
 menu. Folders are drawn in amber, files in the default colour. **Rename** uses the
 on-screen keyboard (touch screens only); the current name is pre-filled and validated
@@ -36,6 +36,21 @@ keyboard: QWERTY with one-shot Shift, two symbol pages (`?123`, `#+=`), space,
 Del, Cancel and Done. The layout/hit-test model is `recovery_ui/keyboard.cpp`
 (no graphics dependency). Labels are ASCII because the recovery font has no other
 glyphs. Physical Back cancels.
+
+## Text editor
+
+Three dots on a file > **Edit** opens it in a text editor (`EditDocument`,
+`recovery_ui/text_editor.cpp` for the buffer). Files up to 256 KB; binary files
+(NUL bytes) and symlinks are refused. The control row has **Save**, **Exit**,
+arrows, Home/End and Page Up/Down; tapping the text moves the cursor; lines are
+soft-wrapped; volume keys page. Line endings (LF/CRLF) and the final newline are
+kept; non-ASCII characters show as `?` but their bytes are kept unless deleted.
+Exit with unsaved changes asks for a second tap.
+
+Saving writes a temporary file in the same folder, flushes it, copies the mode,
+owner and **SELinux label** (`security.selinux`), then renames it over the
+original, so the original stays intact if anything fails. For files in OS
+partitions, mount the partition RW first (Mount partitions).
 
 ## Terminal
 
@@ -94,10 +109,13 @@ g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
   recovery_ui/keyboard.cpp recovery_ui/keyboard_test.cpp -o /tmp/keyboard-test
 g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
   recovery_ui/terminal.cpp recovery_ui/terminal_test.cpp -o /tmp/terminal-test
-/tmp/file-manager-test && /tmp/keyboard-test && /tmp/terminal-test
+g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
+  recovery_ui/text_editor.cpp recovery_ui/text_editor_test.cpp -o /tmp/text-editor-test
+/tmp/file-manager-test && /tmp/keyboard-test && /tmp/terminal-test && /tmp/text-editor-test
 ```
 
 Build `m -j8 recoveryimage`. Check the padded image against the device's recovery
 partition and test boot, touch hitboxes/rotation (menus, keyboard keys), physical
-keys, locked internal storage, SD/OTG, interrupted operations, and the terminal
-(prompt, Ctrl+C, scrollback, Exit) on a device before release.
+keys, locked internal storage, SD/OTG, interrupted operations, the terminal
+(prompt, Ctrl+C, scrollback, Exit) and the editor (edit, save, SELinux label kept
+on a /system file) on a device before release.

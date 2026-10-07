@@ -279,6 +279,15 @@ class RecoveryUI {
   }
   // nasgorOS: interactive terminal running /system/bin/sh; returns when the user exits.
   virtual void RunTerminal() {}
+  // nasgorOS: text editor with the on-screen keyboard. Returns true when the user
+  // saves (content holds the new text). Returns false when the user exits without
+  // saving or the content cannot be edited (error is set, e.g. binary data).
+  virtual bool EditDocument(const std::string& title, std::string* content, std::string* error) {
+    (void)title;
+    (void)content;
+    *error = "The text editor needs a touch screen.";
+    return false;
+  }
 
   // Displays the localized wipe data menu with pre-generated graphs. If there's an issue
   // with the graphs, falls back to use the backup string headers and items instead. The initial

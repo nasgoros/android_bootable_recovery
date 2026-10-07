@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 #include <algorithm>
 #include <array>
@@ -274,6 +275,89 @@ bool Storage::Move(const std::string& from, const Storage& target, const std::st
   if (!SyncDir(source)) return Fail(error, "Moved, but source flush failed");
   return true;
 }
+bool Storage::ReadFile(const std::string& path, size_t max_size, std::string* data,
+                       std::string* error) const {
+  data->clear();
+  std::string name;
+  Fd dir(OpenParent(path, &name));
+  if (dir < 0) return Fail(error, "Open folder");
+  Fd file(openat(dir, name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
+  if (file < 0) return Fail(error, "Open file");
+  struct stat st {};
+  if (fstat(file, &st)) return Fail(error, "Read file details");
+  if (!S_ISREG(st.st_mode)) { errno = EINVAL; return Fail(error, "Not a regular file"); }
+  if (static_cast<size_t>(st.st_size) > max_size) {
+    *error = "File is too large to edit (limit " + std::to_string(max_size / 1024) + " KB)";
+    return false;
+  }
+  std::array<char, 65536> buffer;
+  while (true) {
+    ssize_t count = read(file, buffer.data(), buffer.size());
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0) return Fail(error, "Read file");
+    if (count == 0) break;
+    data->append(buffer.data(), count);
+    if (data->size() > max_size) { errno = EFBIG; return Fail(error, "File grew while reading"); }
+  }
+  return true;
+}
+
+bool Storage::WriteFileAtomic(const std::string& path, const std::string& data,
+                              std::string* error) const {
+  std::string name;
+  Fd dir(OpenParent(path, &name));
+  if (dir < 0) return Fail(error, "Open folder");
+  Fd original(openat(dir, name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
+  if (original < 0) return Fail(error, "Open file");
+  struct stat st {};
+  if (fstat(original, &st)) return Fail(error, "Read file details");
+  if (!S_ISREG(st.st_mode)) { errno = EINVAL; return Fail(error, "Not a regular file"); }
+  // Keep the SELinux label: files in /system without it can stop the OS from booting.
+  std::string label;
+  ssize_t label_size = fgetxattr(original, "security.selinux", nullptr, 0);
+  if (label_size > 0) {
+    label.resize(label_size);
+    label_size = fgetxattr(original, "security.selinux", label.data(), label.size());
+    if (label_size < 0) return Fail(error, "Read SELinux label");
+    label.resize(label_size);
+  } else if (label_size < 0 && errno != ENODATA && errno != ENOTSUP) {
+    return Fail(error, "Read SELinux label");
+  }
+
+  static unsigned serial = 0;
+  std::string temp;
+  int temp_fd = -1;
+  for (int i = 0; i < 100 && temp_fd < 0; ++i) {
+    temp = ".nasgor-edit-" + std::to_string(getpid()) + "-" + std::to_string(++serial);
+    temp_fd = openat(dir, temp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (temp_fd < 0 && errno != EEXIST) return Fail(error, "Create temporary file");
+  }
+  if (temp_fd < 0) { errno = EEXIST; return Fail(error, "Create temporary file"); }
+  Fd output(temp_fd);
+  auto abort_write = [&](const std::string& action) {
+    bool result = Fail(error, action);
+    unlinkat(dir, temp.c_str(), 0);
+    return result;
+  };
+  size_t done = 0;
+  while (done < data.size()) {
+    ssize_t written = write(output, data.data() + done, data.size() - done);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) return abort_write("Write file");
+    done += written;
+  }
+  if (fchown(output, st.st_uid, st.st_gid)) return abort_write("Keep owner");
+  if (fchmod(output, st.st_mode & 07777)) return abort_write("Keep permissions");
+  if (!label.empty() &&
+      fsetxattr(output, "security.selinux", label.data(), label.size(), 0)) {
+    return abort_write("Keep SELinux label");
+  }
+  if (fsync(output)) return abort_write("Flush file");
+  if (renameat(dir, temp.c_str(), dir, name.c_str())) return abort_write("Replace file");
+  if (!SyncDir(dir)) return Fail(error, "Saved, but flushing the folder failed");
+  return true;
+}
+
 std::string DisplayName(const std::string& name) {
   std::string result;
   for (unsigned char c : name) {

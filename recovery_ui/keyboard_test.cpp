@@ -13,11 +13,13 @@ using namespace recovery::keyboard;
 
 int main() {
   const Mode modes[] = {Mode::kLower, Mode::kUpper, Mode::kSymbols, Mode::kSymbols2};
-  for (bool terminal : {false, true}) {
+  for (Variant variant : {Variant::kTextEntry, Variant::kTerminal, Variant::kEditor}) {
+    const bool terminal = variant == Variant::kTerminal;
+    const bool editor = variant == Variant::kEditor;
     for (Mode mode : modes) {
       const int x = 10, y = 1000, w = 1080, h = 900, gap = 6;
-      auto keys = Layout(mode, terminal, x, y, w, h, gap);
-      auto rows = Rows(mode, terminal);
+      auto keys = Layout(mode, variant, x, y, w, h, gap);
+      auto rows = Rows(mode, variant);
       size_t count = 0;
       for (const auto& row : rows) count += row.size();
       assert(keys.size() == count);
@@ -49,14 +51,17 @@ int main() {
       }
       // Outside the keyboard nothing is hit.
       assert(HitTest(keys, x + w / 2, y - 50) == nullptr);
-      // Text entry has Cancel and Done, the terminal has Exit and Enter.
-      bool has_cancel = false, has_exit = false, has_enter = false;
+      // Text entry has Cancel and Done; the terminal and editor have Exit and Enter;
+      // only the editor has Save.
+      bool has_cancel = false, has_exit = false, has_enter = false, has_save = false;
       for (const auto& key : keys) {
         has_cancel |= key.key.type == KeyType::kCancel;
         has_exit |= key.key.type == KeyType::kExit;
         has_enter |= key.key.type == KeyType::kEnter;
+        has_save |= key.key.type == KeyType::kSave;
       }
-      assert(has_cancel == !terminal && has_exit == terminal && has_enter);
+      assert(has_cancel == (!terminal && !editor) && has_exit == (terminal || editor));
+      assert(has_enter && has_save == editor);
     }
   }
   assert(NextMode(Mode::kLower, KeyType::kShift) == Mode::kUpper);
@@ -72,6 +77,6 @@ int main() {
   EraseLastCharacter(&text);
   EraseLastCharacter(&text);
   assert(text.empty());
-  std::cout << "PASS: keyboard layout, hit testing, modes, UTF-8 backspace\n";
+  std::cout << "PASS: keyboard layout (text entry, terminal, editor), hit testing, modes, UTF-8 backspace\n";
   return 0;
 }

@@ -13,6 +13,9 @@ namespace recovery::keyboard {
 
 enum class Mode { kLower, kUpper, kSymbols, kSymbols2 };
 
+// Where the keyboard is used; decides the extra control row and the bottom row.
+enum class Variant { kTextEntry, kTerminal, kEditor };
+
 enum class KeyType {
   kChar,       // inserts text()
   kShift,      // lower <-> upper
@@ -31,6 +34,12 @@ enum class KeyType {
   kDown,
   kLeft,
   kRight,
+  // Editor row (also uses kExit and the arrows)
+  kSave,
+  kHome,
+  kEnd,
+  kPageUp,
+  kPageDown,
 };
 
 struct Key {
@@ -45,12 +54,12 @@ struct PlacedKey {
   int x, y, w, h;
 };
 
-// Rows for the given mode. `terminal` adds the terminal control row on top and
-// uses Enter instead of Cancel/Done.
-std::vector<std::vector<Key>> Rows(Mode mode, bool terminal);
+// Rows for the given mode. The terminal and editor variants add a control row on
+// top and use Enter (newline) instead of Cancel/Done.
+std::vector<std::vector<Key>> Rows(Mode mode, Variant variant);
 
 // Places the rows inside the rectangle (x, y, w, h) with `gap` pixels between keys.
-std::vector<PlacedKey> Layout(Mode mode, bool terminal, int x, int y, int w, int h, int gap);
+std::vector<PlacedKey> Layout(Mode mode, Variant variant, int x, int y, int w, int h, int gap);
 
 // Returns the key at (px, py), or nullptr.
 const PlacedKey* HitTest(const std::vector<PlacedKey>& keys, int px, int py);

@@ -101,8 +101,33 @@ int main() {
   assert(a.Remove("deltree", &error));
   assert(!fs::exists(root + "/deltree"));
   assert(Read(external + "/target.txt") == "outside");
+  // Text editor I/O: read limits, atomic replace keeping mode, no symlinks, no leftovers.
+  Write(root + "/config.prop", "ro.a=1\n");
+  assert(chmod((root + "/config.prop").c_str(), 0640) == 0);
+  struct stat before_edit {}, after_edit {};
+  assert(stat((root + "/config.prop").c_str(), &before_edit) == 0);
+  std::string text;
+  assert(a.ReadFile("config.prop", 1024, &text, &error) && text == "ro.a=1\n");
+  assert(!a.ReadFile("config.prop", 3, &text, &error));  // over the size limit
+  assert(a.WriteFileAtomic("config.prop", "ro.a=2\nro.b=3\n", &error));
+  assert(Read(root + "/config.prop") == "ro.a=2\nro.b=3\n");
+  assert(stat((root + "/config.prop").c_str(), &after_edit) == 0);
+  assert((after_edit.st_mode & 07777) == 0640 && after_edit.st_uid == before_edit.st_uid);
+  assert(after_edit.st_ino != before_edit.st_ino);  // replaced by rename, not rewritten
+  for (const auto& e : fs::directory_iterator(root)) {
+    assert(e.path().filename().string().find(".nasgor-edit-") != 0);
+  }
+  Write(external + "/target.conf", "outside");
+  fs::create_symlink(external + "/target.conf", root + "/link.conf");
+  assert(!a.ReadFile("link.conf", 1024, &text, &error));
+  assert(!a.WriteFileAtomic("link.conf", "changed", &error));
+  assert(Read(external + "/target.conf") == "outside");
+  assert(!a.WriteFileAtomic("missing.conf", "x", &error));
+  assert(!fs::exists(root + "/missing.conf"));
+  fs::create_directory(root + "/adir");
+  assert(!a.ReadFile("adir", 1024, &text, &error));
   fs::remove_all(root);
   fs::remove_all(external);
   fs::remove_all(cross);
-  std::cout << "PASS: rename, recursive delete (nested folders), cross-filesystem move, collisions, symlinks, traversal, ancestry, Unicode\n";
+  std::cout << "PASS: rename, recursive delete (nested folders), atomic text save, cross-filesystem move, collisions, symlinks, traversal, ancestry, Unicode\n";
 }

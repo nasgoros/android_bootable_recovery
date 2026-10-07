@@ -24,6 +24,13 @@ class Storage {
   bool Remove(const std::string& path, std::string* error) const;
   bool Move(const std::string& from, const Storage& target, const std::string& to,
             std::string* error) const;
+  // Reads a regular file (never a symlink) of at most max_size bytes.
+  bool ReadFile(const std::string& path, size_t max_size, std::string* data,
+                std::string* error) const;
+  // Replaces a regular file atomically (temporary file, fsync, rename) keeping its
+  // mode, owner and SELinux label. The original is untouched if anything fails.
+  bool WriteFileAtomic(const std::string& path, const std::string& data,
+                       std::string* error) const;
   static bool ValidName(const std::string& name);
  private:
   int OpenDirectory(const std::string& path) const;
