@@ -65,7 +65,7 @@ const char* StateLabel(State state) {
   switch (state) {
     case State::kReadOnly: return "RO";
     case State::kReadWrite: return "RW";
-    default: return "tidak di-mount / not mounted";
+    default: return "not mounted";
   }
 }
 
@@ -73,30 +73,30 @@ bool Mount(const Partition& partition, bool read_write, std::string* error) {
   if (GetState(partition) == State::kUnmounted) {
     // Dynamic partitions (and Virtual A/B snapshots) must be mapped first.
     if (!logical_partitions_mapped() && !CreateSnapshotPartitions()) {
-      *error = "Gagal memetakan partisi dinamis / cannot map dynamic partitions";
+      *error = "Cannot map dynamic partitions";
       return false;
     }
     mkdir(partition.mount_point.c_str(), 0755);
     if (ensure_path_mounted_at(partition.fstab_path, partition.mount_point) != 0) {
-      *error = "Gagal mount " + partition.name + " / mount failed";
+      *error = "Cannot mount " + partition.name;
       return false;
     }
   }
   android::fs_mgr::FstabEntry mounted;
   if (!FindMount(partition.mount_point, &mounted)) {
-    *error = partition.name + " tidak ditemukan di /proc/mounts";
+    *error = partition.name + " not found in /proc/mounts";
     return false;
   }
   bool is_rw = (mounted.flags & MS_RDONLY) == 0;
   if (is_rw == read_write) return true;
   if (read_write && !fs_mgr_set_blk_ro(mounted.blk_device, false)) {
-    *error = Errno("Tidak bisa membuat " + mounted.blk_device + " writable");
+    *error = Errno("Cannot make " + mounted.blk_device + " writable");
     return false;
   }
   unsigned long flags = MS_REMOUNT | (read_write ? 0 : MS_RDONLY);
   if (mount(mounted.blk_device.c_str(), partition.mount_point.c_str(), mounted.fs_type.c_str(),
             flags, nullptr) != 0) {
-    *error = Errno(std::string("Remount ") + (read_write ? "RW" : "RO") + " gagal");
+    *error = Errno(std::string("Remount ") + (read_write ? "RW" : "RO") + " failed");
     return false;
   }
   LOG(INFO) << "Remounted " << partition.mount_point << (read_write ? " rw" : " ro");
@@ -107,7 +107,7 @@ bool Unmount(const Partition& partition, std::string* error) {
   if (GetState(partition) == State::kUnmounted) return true;
   sync();
   if (umount(partition.mount_point.c_str()) != 0) {
-    *error = Errno("Unmount " + partition.name + " gagal (masih dipakai?)");
+    *error = Errno("Unmount " + partition.name + " failed (still in use?)");
     return false;
   }
   return true;

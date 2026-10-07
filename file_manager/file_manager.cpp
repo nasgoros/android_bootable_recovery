@@ -71,9 +71,9 @@ class Browser {
         result == static_cast<size_t>(RecoveryUI::KeyError::INTERRUPTED)) stopped_ = true;
     return result;
   }
-  void Message(const std::vector<std::string>& lines) { Menu(lines, {"Kembali / Back"}); }
+  void Message(const std::vector<std::string>& lines) { Menu(lines, {"Back"}); }
   bool Confirm(const std::vector<std::string>& lines, const std::string& action) {
-    return Menu(lines, {"Batal / Cancel", action}) == 1;
+    return Menu(lines, {"Cancel", action}) == 1;
   }
   std::unique_ptr<Storage> ChooseStorage(std::string* label);
   bool Destination(std::unique_ptr<Storage>* storage, std::string* folder, std::string* label);
@@ -91,7 +91,7 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
   while (!stopped_) {
     std::vector<VolumeInfo> volumes;
     VolumeManager::Instance()->getVolumeInfo(volumes);
-    std::vector<std::string> items{"Kembali / Back", "Refresh storage"};
+    std::vector<std::string> items{"Back", "Refresh storage"};
     // Partitions mounted RW from "Mount partitions" (main menu) are listed first.
     const auto roots = WritablePartitionRoots();
     for (const auto& root : roots) items.push_back(root.label + "  [RW]");
@@ -103,21 +103,21 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
                       (volume.mMountable ? "" : " [locked/unavailable]"));
     }
     size_t choice = Menu({"File manager - Storage", "Internal storage, SD card, USB OTG",
-                          "Partisi muncul di sini setelah di-mount RW lewat",
-                          "menu utama > Mount partitions (RO/RW)"}, items);
+                          "Partitions appear here after mounting them RW in",
+                          "main menu > Mount partitions (RO/RW)"}, items);
     if (choice == 1 || choice == static_cast<size_t>(Device::kRefresh)) continue;
     if (choice < 2 || choice >= items.size()) return nullptr;
     if (choice < first_volume) {
       const auto& root = roots[choice - 2];
       auto storage = std::make_unique<Storage>(root.path);
-      if (!storage->valid()) { Message({"Partisi tidak terbaca: " + root.path}); continue; }
+      if (!storage->valid()) { Message({"Cannot read partition: " + root.path}); continue; }
       *label = root.label;
       return storage;
     }
     const auto& volume = available[choice - first_volume];
     if (!volume.mMountable || !VolumeManager::Instance()->volumeMount(volume.mId)) {
-      Message({"Storage tidak dapat dibuka.", "Internal storage mungkin terenkripsi/terkunci.",
-               "Recovery ini tidak membuka enkripsi PIN/FBE.", "Untuk SD/USB: cek koneksi dan filesystem."});
+      Message({"Cannot open storage.", "Internal storage may be encrypted/locked.",
+               "This recovery does not decrypt PIN/FBE storage.", "For SD/USB: check the connection and filesystem."});
       continue;
     }
     // Paths may be assigned by the volume driver during mounting.
@@ -127,7 +127,7 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
     for (const auto& v : mounted) if (v.mId == volume.mId) path = v.mPath;
     if (path.empty()) { Message({"Storage disconnected."}); continue; }
     auto storage = std::make_unique<Storage>(path);
-    if (!storage->valid()) { Message({"Storage tidak terbaca atau masih terkunci."}); continue; }
+    if (!storage->valid()) { Message({"Storage is unreadable or still locked."}); continue; }
     *label = items[choice];
     return storage;
   }
@@ -142,7 +142,7 @@ void Browser::Details(const Storage& storage, const std::string& path) {
   if (localtime_r(&st.st_mtime, &time)) strftime(date, sizeof(date), "%Y-%m-%d %H:%M:%S %Z", &time);
   std::string type = S_ISDIR(st.st_mode) ? "Folder" : S_ISLNK(st.st_mode) ? "Symbolic link" :
                      S_ISREG(st.st_mode) ? "File" : "Special file";
-  Message({"Rincian / Details", DisplayName(path), "Type: " + type,
+  Message({"Details", DisplayName(path), "Type: " + type,
            android::base::StringPrintf("Size: %lld bytes%s", static_cast<long long>(st.st_size),
                                       S_ISDIR(st.st_mode) ? " (folder entry, not contents)" : ""),
            android::base::StringPrintf("Permissions: %04o  UID: %u  GID: %u", st.st_mode & 07777,
@@ -154,13 +154,13 @@ bool Browser::RenameInput(const std::string& old, std::string* name) {
   const std::vector<std::string> groups{"abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
                                         "0123456789", " ._-()[]+@"};
   while (!stopped_) {
-    size_t action = Menu({"Rename", DisplayName(*name), "Pilih karakter untuk menambah nama."},
-                        {"Batal / Cancel", "Simpan / Save", "Hapus karakter terakhir", "Kosongkan",
-                         "a-z", "A-Z", "0-9", "Spasi dan simbol"});
+    size_t action = Menu({"Rename", DisplayName(*name), "Pick characters to build the name."},
+                        {"Cancel", "Save", "Delete last character", "Clear",
+                         "a-z", "A-Z", "0-9", "Space and symbols"});
     if (action == 0 || action > 7) return false;
     if (action == 1) {
       if (Storage::ValidName(*name)) return true;
-      Message({"Nama harus 1-255 byte, bukan . atau .., tanpa /"});
+      Message({"Name must be 1-255 bytes, not . or .., without /"});
     } else if (action == 2 && !name->empty()) {
       size_t last = name->size() - 1;
       while (last > 0 && (static_cast<unsigned char>((*name)[last]) & 0xc0) == 0x80) --last;
@@ -169,9 +169,9 @@ bool Browser::RenameInput(const std::string& old, std::string* name) {
       name->clear();
     } else if (action >= 4) {
       const auto& group = groups[action - 4];
-      std::vector<std::string> chars{"Kembali / Back"};
-      for (char c : group) chars.push_back(c == ' ' ? "[spasi]" : std::string(1, c));
-      size_t selected = Menu({"Pilih karakter", DisplayName(*name)}, chars);
+      std::vector<std::string> chars{"Back"};
+      for (char c : group) chars.push_back(c == ' ' ? "[space]" : std::string(1, c));
+      size_t selected = Menu({"Pick a character", DisplayName(*name)}, chars);
       if (selected > 0 && selected < chars.size() && name->size() < 255) *name += group[selected - 1];
     }
   }
@@ -185,12 +185,12 @@ bool Browser::Destination(std::unique_ptr<Storage>* storage, std::string* folder
     std::vector<Entry> entries;
     std::string error;
     if (!(*storage)->List(*folder, &entries, &error)) { Message({error}); return false; }
-    std::vector<std::string> items{"Batal / Cancel", "Pindahkan ke folder ini / Move here", "../"};
+    std::vector<std::string> items{"Cancel", "Move here", "../"};
     std::vector<std::string> dirs;
     for (const auto& entry : entries) {
       if (S_ISDIR(entry.info.st_mode)) { dirs.push_back(entry.name); items.push_back(DisplayName(entry.name) + "/"); }
     }
-    size_t choice = Menu({"Pilih tujuan / Destination", Location(*label, *folder)}, items);
+    size_t choice = Menu({"Choose destination", Location(*label, *folder)}, items);
     if (choice == 1) return true;
     if (choice == static_cast<size_t>(Device::kRefresh)) continue;
     if (choice == 2 || choice == static_cast<size_t>(Device::kGoBack)) {
@@ -222,7 +222,7 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     }
     if (selection >= items.size()) selection = 0;
     size_t result = ui_->ShowFileMenu({"File manager", Location(label, folder),
-                                      "Ketuk folder: buka | tiga titik: aksi", "Volume: pilih | Power: aksi"},
+                                      "Tap a folder to open | three dots: actions", "Volume: select | Power: actions"},
                                      items, actions, selection, keys_);
     if (result == static_cast<size_t>(Device::kRefresh)) continue;
     if (result == static_cast<size_t>(Device::kGoHome) ||
@@ -240,14 +240,14 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     const auto& entry = entries[index - 1];
     std::string path = Join(folder, entry.name);
     if (!overflow && S_ISDIR(entry.info.st_mode)) { folder = path; selection = 0; continue; }
-    std::vector<std::string> options{"Batal / Cancel", "Hapus / Delete", "Rename", "Move", "Rincian / Details"};
-    if (S_ISDIR(entry.info.st_mode)) options.push_back("Buka folder / Open folder");
+    std::vector<std::string> options{"Cancel", "Delete", "Rename", "Move", "Details"};
+    if (S_ISDIR(entry.info.st_mode)) options.push_back("Open folder");
     size_t action = Menu({DisplayName(path)}, options);
     if (action == 1) {
-      if (Confirm({"Hapus permanen? / Delete permanently?", DisplayName(path),
-                   "Folder beserta seluruh isinya akan dihapus."}, "Hapus / Delete")) {
+      if (Confirm({"Delete permanently?", DisplayName(path),
+                   "Folders are deleted with all their contents."}, "Delete")) {
         ui_->Print("Deleting %s...\n", DisplayName(path).c_str());
-        if (!storage.Remove(path, &error)) Message({"Penghapusan tidak lengkap:", error});
+        if (!storage.Remove(path, &error)) Message({"Delete incomplete:", error});
       }
     } else if (action == 2) {
       std::string name;
@@ -259,7 +259,7 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       if (Destination(&dest, &dest_folder, &dest_label) &&
           Confirm({"Move", Location(label, path),
                    "To: " + Location(dest_label, Join(dest_folder, entry.name)),
-                   "Nama yang sudah ada tidak akan ditimpa."}, "Move here")) {
+                   "Existing names are never overwritten."}, "Move here")) {
         ui_->Print("Moving %s; please keep storage connected...\n", DisplayName(path).c_str());
         if (!storage.Move(path, *dest, Join(dest_folder, entry.name), &error)) Message({error});
       }
@@ -272,20 +272,20 @@ void Browser::Partitions() {
   using recovery::partitions::State;
   while (!stopped_) {
     auto parts = recovery::partitions::List();
-    std::vector<std::string> items{"Kembali / Back"};
+    std::vector<std::string> items{"Back"};
     for (const auto& part : parts) {
       items.push_back(part.name + "  [" +
                       recovery::partitions::StateLabel(recovery::partitions::GetState(part)) + "]");
     }
-    size_t choice = Menu({"Mount partisi / Mount partitions",
-                          "RW: perubahan langsung ke partisi / changes are written directly",
-                          "Partisi RW tampil di File manager (/, /system, /product, ...)"},
+    size_t choice = Menu({"Mount partitions",
+                          "RW: changes are written directly to the partition",
+                          "RW partitions appear in File manager (/, /system, /product, ...)"},
                          items);
     if (choice == static_cast<size_t>(Device::kRefresh)) continue;
     if (choice == 0 || choice >= items.size()) return;
     const auto& part = parts[choice - 1];
     State state = recovery::partitions::GetState(part);
-    std::vector<std::string> options{"Batal / Cancel", "Mount read-only (RO)",
+    std::vector<std::string> options{"Cancel", "Mount read-only (RO)",
                                      "Mount read-write (RW)", "Unmount"};
     size_t action = Menu({part.name + " -> " + part.mount_point,
                           std::string("Status: ") + recovery::partitions::StateLabel(state)},
@@ -296,9 +296,8 @@ void Browser::Partitions() {
       ok = recovery::partitions::Mount(part, false, &error);
     } else if (action == 2) {
       if (!Confirm({"Mount " + part.name + " read-write?",
-                    "Perubahan bisa membuat sistem gagal boot.",
-                    "File baru tidak membawa label SELinux; hapus/rename lebih aman.",
-                    "Changes may stop the system from booting."}, "Mount RW")) continue;
+                    "Changes may stop the system from booting.",
+                    "New files get no SELinux label; delete/rename is safer."}, "Mount RW")) continue;
       ok = recovery::partitions::Mount(part, true, &error);
     } else if (action == 3) {
       ok = recovery::partitions::Unmount(part, &error);
