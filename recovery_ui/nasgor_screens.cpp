@@ -21,6 +21,7 @@
 #include <vector>
 
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 
 #include "minui/minui.h"
 #include "recovery_ui/keyboard.h"
@@ -46,6 +47,12 @@ void FillKey(const PlacedKey& key, bool highlighted) {
     gr_color(0x26, 0x26, 0x26, 255);
   }
   gr_fill(key.x, key.y, key.x + key.w, key.y + key.h);
+}
+
+// Keeps full-screen views below a camera cut-out; ro.recovery.ui.safe_top overrides the default.
+int SafeTop(int screen_height, int margin_height) {
+  const int inset = android::base::GetIntProperty("ro.recovery.ui.safe_top", screen_height * 4 / 100);
+  return std::max(margin_height, inset);
 }
 
 }  // namespace
@@ -107,8 +114,9 @@ bool ScreenRecoveryUI::EditText(const std::vector<std::string>& headers, std::st
   std::vector<PlacedKey> keys =
       Layout(mode, recovery::keyboard::Variant::kTextEntry, 0, keyboard_top, ScreenWidth(), ScreenHeight() - keyboard_top, gap);
 
+  const int safe_top = SafeTop(ScreenHeight(), margin_height_);
   auto draw = [&]() {
-    int y = margin_height_;
+    int y = safe_top;
     SetColor(UIElement::HEADER);
     y += DrawTextLines(margin_width_, y, headers);
     y += char_height_ / 2;
@@ -205,7 +213,7 @@ void ScreenRecoveryUI::RunTerminal() {
   const int gap = std::max(4, ScreenWidth() / 180);
   const int keyboard_top = ScreenHeight() * 56 / 100;
   const int text_x = std::max(margin_width_ / 2, 8);
-  const int title_y = margin_height_;
+  const int title_y = SafeTop(ScreenHeight(), margin_height_);
   const int text_top = title_y + char_height_ + gap * 2;
   const int cols = std::max((ScreenWidth() - text_x * 2) / char_width_, 20);
   const int rows = std::max((keyboard_top - gap - text_top) / char_height_, 4);
@@ -244,8 +252,11 @@ void ScreenRecoveryUI::RunTerminal() {
     }
     gr_color(0xe0, 0xe0, 0xe0, 255);
     for (size_t i = 0; i < lines.size(); ++i) {
+      std::string& line = lines[i];
+      line.erase(line.find_last_not_of(' ') + 1);  // blank cells cost glyph blits for nothing
+      if (line.empty()) continue;
       gr_text(gr_sys_font(), text_x, text_top + static_cast<int>(i) * char_height_,
-              lines[i].c_str(), false);
+              line.c_str(), false);
     }
     gr_color(0x10, 0x10, 0x10, 255);
     gr_fill(0, keyboard_top, ScreenWidth(), ScreenHeight());
@@ -280,18 +291,30 @@ void ScreenRecoveryUI::RunTerminal() {
         }
         if (fds[1].revents) break;
         if (fds[0].revents) {
-          ssize_t n = read(shell.fd(), buf, sizeof(buf));
-          if (n < 0 && errno == EINTR) continue;
-          if (n <= 0) {  // the shell exited (EIO on the master side)
+          bool alive = true;
+          // Take everything the shell has ready (up to ~12 ms) so a burst of output costs one
+          // redraw instead of one per 4 KiB read.
+          const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(12);
+          do {
+            ssize_t n = read(shell.fd(), buf, sizeof(buf));
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) {  // the shell exited (EIO on the master side)
+              alive = false;
+              break;
+            }
+            {
+              std::lock_guard<std::mutex> lg(engine_mutex);
+              engine.Feed(buf, static_cast<size_t>(n));
+            }
+            pollfd more = {shell.fd(), POLLIN, 0};
+            if (poll(&more, 1, 0) <= 0 || !(more.revents & POLLIN)) break;
+          } while (std::chrono::steady_clock::now() < deadline);
+          Redraw();
+          if (!alive) {
             shell_exited = true;
             EnqueueTouch(Point(-1, -1));  // wake the input loop
             break;
           }
-          {
-            std::lock_guard<std::mutex> lg(engine_mutex);
-            engine.Feed(buf, static_cast<size_t>(n));
-          }
-          Redraw();
         }
       }
     });
@@ -309,6 +332,9 @@ void ScreenRecoveryUI::RunTerminal() {
     bool exit_requested = false;
     {
       std::lock_guard<std::mutex> lg(updateMutex);
+      const size_t scroll_before = scroll_back;
+      const bool ctrl_before = ctrl;
+      const Mode mode_before = mode;
       if (evt.type() == EventType::KEY) {
         const int page = std::max(rows / 2, 1);
         size_t history;
@@ -367,7 +393,11 @@ void ScreenRecoveryUI::RunTerminal() {
           if (!input.empty()) scroll_back = 0;
         }
       }
-      update_screen_locked();
+      // Typed characters are redrawn when the shell echoes them; redrawing here as well
+      // doubled the work per key press.
+      if (scroll_back != scroll_before || ctrl != ctrl_before || mode != mode_before) {
+        update_screen_locked();
+      }
     }
     if (exit_requested) break;
     if (!input.empty() && started) shell.Write(input);
@@ -410,7 +440,7 @@ bool ScreenRecoveryUI::EditDocument(const std::string& title, std::string* conte
   const int gap = std::max(4, ScreenWidth() / 180);
   const int keyboard_top = ScreenHeight() * 52 / 100;
   const int text_x = std::max(margin_width_ / 2, 8);
-  const int title_y = margin_height_;
+  const int title_y = SafeTop(ScreenHeight(), margin_height_);
   const int text_top = title_y + char_height_ + gap * 2;
   const size_t cols = std::max((ScreenWidth() - text_x * 2) / char_width_, 10);
   const size_t rows = std::max((keyboard_top - gap - text_top) / char_height_, 3);
