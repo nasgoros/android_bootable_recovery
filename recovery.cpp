@@ -569,6 +569,7 @@ change_menu:
       case Device::MENU_BASE:
       case Device::MENU_WIPE:
       case Device::MENU_ADVANCED:
+      case Device::MENU_REBOOT:
         goto change_menu;
 
       case Device::REBOOT_FROM_FASTBOOT:    // Can not happen

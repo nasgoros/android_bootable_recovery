@@ -32,7 +32,7 @@ typedef std::pair<std::string, Device::BuiltinAction> menu_action_t;
 
 static std::vector<std::string> g_main_header{};
 static std::vector<menu_action_t> g_main_actions{
-  { "Reboot system now", Device::REBOOT },
+  { "Reboot", Device::MENU_REBOOT },
   { "Apply update", Device::APPLY_UPDATE },
   { "Factory reset", Device::MENU_WIPE },
   { "Advanced", Device::MENU_ADVANCED },
@@ -44,13 +44,19 @@ static std::vector<menu_action_t> g_main_actions{
 static std::vector<std::string> g_advanced_header{ "Advanced options" };
 static std::vector<menu_action_t> g_advanced_actions{
   { "Enter fastboot", Device::ENTER_FASTBOOT },
-  { "Reboot to bootloader", Device::REBOOT_BOOTLOADER },
-  { "Reboot to recovery", Device::REBOOT_RECOVERY },
   { "View recovery logs", Device::VIEW_RECOVERY_LOGS },
   { "Enable ADB", Device::ENABLE_ADB },
   { "Run graphics test", Device::RUN_GRAPHICS_TEST },
   { "Run locale test", Device::RUN_LOCALE_TEST },
   { "Enter rescue", Device::ENTER_RESCUE },
+};
+
+static std::vector<std::string> g_reboot_header{ "Reboot" };
+static std::vector<menu_action_t> g_reboot_actions{
+  { "System", Device::REBOOT },
+  { "Recovery", Device::REBOOT_RECOVERY },
+  { "Bootloader", Device::REBOOT_BOOTLOADER },
+  { "Fastbootd", Device::REBOOT_FASTBOOT },
   { "Power off", Device::SHUTDOWN },
 };
 
@@ -103,6 +109,7 @@ static void RemoveMenuItemForAction(std::vector<menu_action_t>& menu, Device::Bu
 void Device::RemoveMenuItemForAction(Device::BuiltinAction action) {
   ::RemoveMenuItemForAction(g_wipe_actions, action);
   ::RemoveMenuItemForAction(g_advanced_actions, action);
+  ::RemoveMenuItemForAction(g_reboot_actions, action);
 }
 
 const std::vector<std::string>& Device::GetMenuItems() {
@@ -114,6 +121,8 @@ const std::vector<std::string>& Device::GetMenuHeaders() {
       return g_wipe_header;
   if (current_menu_ == &g_advanced_actions)
       return g_advanced_header;
+  if (current_menu_ == &g_reboot_actions)
+      return g_reboot_header;
   return g_main_header;
 }
 
@@ -127,6 +136,9 @@ Device::BuiltinAction Device::InvokeMenuItem(size_t menu_position) {
         break;
       case Device::BuiltinAction::MENU_ADVANCED:
         current_menu_ = &g_advanced_actions;
+        break;
+      case Device::BuiltinAction::MENU_REBOOT:
+        current_menu_ = &g_reboot_actions;
         break;
       default:
         break;
