@@ -33,8 +33,8 @@ std::string Parent(const std::string& path) {
   auto slash = path.rfind('/');
   return slash == std::string::npos ? "" : path.substr(0, slash);
 }
-// Partition roots are labelled like device paths ("/", "/system", "/product");
-// storage volumes keep "<label>:/<folder>".
+// The recovery root and partitions are labelled like device paths ("/", "/system",
+// "/product"); storage volumes keep "<label>:/<folder>".
 std::string Location(const std::string& label, const std::string& folder) {
   if (!label.empty() && label[0] == '/') {
     std::string base = label == "/" ? "" : label;
@@ -50,15 +50,14 @@ struct Root {
   std::string label;  // "/", "/system", "/product", ...
   std::string path;   // where it is mounted in recovery
 };
-// Only partitions mounted read-write are offered for browsing; read-only ones are
-// hidden. On system-as-root devices the system partition holds the whole root
-// filesystem, so it appears as "/" and its system/ folder as "/system".
+// Only partitions mounted read-write are offered as shortcuts; read-only ones are
+// hidden. On system-as-root devices the system partition's system/ folder is the
+// one shown as "/system". "/" is always the recovery's own root filesystem.
 std::vector<Root> WritablePartitionRoots() {
   std::vector<Root> roots;
   for (const auto& part : recovery::partitions::List()) {
     if (recovery::partitions::GetState(part) != recovery::partitions::State::kReadWrite) continue;
     if (part.name == "system" && IsDirectory(part.mount_point + "/system")) {
-      roots.push_back({"/", part.mount_point});
       roots.push_back({"/system", part.mount_point + "/system"});
     } else {
       roots.push_back({"/" + part.name, part.mount_point});
@@ -107,10 +106,11 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
   while (!stopped_) {
     std::vector<VolumeInfo> volumes;
     VolumeManager::Instance()->getVolumeInfo(volumes);
-    std::vector<std::string> items{"Back", "Refresh storage"};
-    // Partitions mounted RW from "Mount partitions" (main menu) are listed first.
-    const auto roots = WritablePartitionRoots();
-    for (const auto& root : roots) items.push_back(root.label + "  [RW]");
+    std::vector<std::string> items{"Back", "Refresh storage", "/  (root: dev, proc, sys, mnt...)"};
+    // Partitions mounted RW from "Mount partitions" (main menu) follow the root.
+    std::vector<Root> roots{{"/", "/"}};
+    for (auto& root : WritablePartitionRoots()) roots.push_back(std::move(root));
+    for (size_t i = 1; i < roots.size(); ++i) items.push_back(roots[i].label + "  [RW]");
     const size_t first_volume = 2 + roots.size();
     std::vector<VolumeInfo> available;
     for (const auto& volume : volumes) {
@@ -126,7 +126,7 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
     if (choice < first_volume) {
       const auto& root = roots[choice - 2];
       auto storage = std::make_unique<Storage>(root.path);
-      if (!storage->valid()) { Message({"Cannot read partition: " + root.path}); continue; }
+      if (!storage->valid()) { Message({"Cannot read: " + root.path}); continue; }
       *label = root.label;
       return storage;
     }

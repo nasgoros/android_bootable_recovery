@@ -100,12 +100,18 @@ can be mounted read-only or read-write below `/mnt/<name>`, or unmounted.
 Dynamic partitions are mapped first. Read-write clears the block device
 read-only flag and remounts; it asks for confirmation.
 
-Only partitions mounted **read-write** appear in the File manager storage list;
-read-only or unmounted ones are hidden. They are labelled like device paths:
-on system-as-root devices (merlinx) the system partition is shown as **`/`**
-(the root filesystem) and its `system/` folder as **`/system`**; other partitions
-appear as `/product`, `/system_ext`, `/vendor`, `/odm`. Folders are deleted
-recursively (files, subfolders and symlinks; symlink targets are untouched).
+The File manager storage list always starts with **`/`**, the recovery's own
+root filesystem (like TWRP): `/dev`, `/proc`, `/sys`, `/tmp`, `/mnt`, ... Every
+mounted partition is reachable there (`/mnt/system`, `/mnt/vendor`, ...).
+`/system` inside it is the recovery ramdisk's system folder, not the system
+partition.
+
+Partitions mounted **read-write** also get a shortcut in the storage list;
+read-only or unmounted ones get none. They are labelled like device paths: on
+system-as-root devices (merlinx) the system partition's `system/` folder is
+**`/system`**; other partitions appear as `/product`, `/system_ext`, `/vendor`,
+`/odm`. Folders are deleted recursively (files, subfolders and symlinks; symlink
+targets are untouched), so take care under `/`.
 
 Moving a file *into* a partition copies it without its SELinux label; deleting
 or renaming existing files is safer. merlinx images are ext4 without shared
