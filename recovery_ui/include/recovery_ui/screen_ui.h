@@ -339,6 +339,8 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   void ShowBusy(const std::string& message) override;
   void HideBusy() override;
   bool EditDocument(const std::string& title, std::string* content, std::string* error) override;
+  bool ViewDocument(const std::string& title, const std::string& content,
+                    std::string* error) override;
 
   void KeyLongPress(int) override;
 

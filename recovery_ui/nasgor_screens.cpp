@@ -28,6 +28,7 @@
 #include "recovery_ui/screen_ui.h"
 #include "recovery_ui/terminal.h"
 #include "recovery_ui/text_editor.h"
+#include "recovery_ui/text_viewer.h"
 
 using recovery::keyboard::KeyType;
 using recovery::keyboard::Layout;
@@ -593,6 +594,201 @@ bool ScreenRecoveryUI::EditDocument(const std::string& title, std::string* conte
   custom_screen_ = nullptr;
   update_screen_locked();
   return saved;
+}
+
+// ---------------------------------------------------------------------------
+// Text viewer
+
+bool ScreenRecoveryUI::ViewDocument(const std::string& title, const std::string& content,
+                                    std::string* error) {
+  using recovery::viewer::Row;
+  using recovery::viewer::TextView;
+
+  error->clear();
+  TextView view;
+  if (!view.Load(content, error)) return false;
+
+  const int gap = std::max(4, ScreenWidth() / 180);
+  const int text_x = std::max(margin_width_ / 2, 8);
+  const int title_y = SafeTop(ScreenHeight(), margin_height_);
+  const int text_top = title_y + char_height_ * 2 + gap * 2;
+  const int bar_h = std::max(char_height_ * 2 + gap * 2, ScreenHeight() / 14);
+  const int bar_top = ScreenHeight() - bar_h - gap;
+  const size_t total_cols = std::max((ScreenWidth() - text_x * 2) / char_width_, 12);
+  const size_t gutter = view.NumberWidth() + 1;
+  const size_t cols = std::max<size_t>(total_cols - gutter, 8);
+  const size_t rows = std::max((bar_top - gap - text_top) / char_height_, 3);
+  // One swipe step (a menu item height of finger travel) scrolls the same distance.
+  const size_t swipe_rows = std::max(1, MenuItemHeight() / std::max(char_height_, 1));
+
+  enum class Button { kBack, kWrap, kTop, kEnd, kLeft, kRight };
+  struct Rect {
+    Button button;
+    std::string label;
+    int x, y, w, h;
+  };
+  std::vector<Rect> buttons;
+  {
+    const std::vector<std::pair<Button, std::string>> specs{
+        {Button::kBack, "Back"}, {Button::kWrap, "Wrap"}, {Button::kTop, "Top"},
+        {Button::kEnd, "End"},   {Button::kLeft, "<"},     {Button::kRight, ">"}};
+    const int count = static_cast<int>(specs.size());
+    const int w = (ScreenWidth() - gap * (count + 1)) / count;
+    for (int i = 0; i < count; ++i) {
+      buttons.push_back({specs[i].first, specs[i].second, gap + i * (w + gap), bar_top, w, bar_h});
+    }
+  }
+
+  bool wrap = true;
+  size_t top_row = 0;
+  size_t offset = 0;  // first visible column without wrap
+  std::vector<Row> layout = view.Layout(cols, wrap);
+
+  auto clamp = [&]() {
+    const size_t last_top = layout.size() > rows ? layout.size() - rows : 0;
+    top_row = std::min(top_row, last_top);
+    const size_t last_offset = view.max_width() > cols ? view.max_width() - cols : 0;
+    offset = wrap ? 0 : std::min(offset, last_offset);
+  };
+  auto scroll = [&](long delta) {
+    top_row = delta < 0 && static_cast<size_t>(-delta) > top_row ? 0 : top_row + delta;
+    clamp();
+  };
+
+  auto draw = [&]() {
+    // Title, then position and mode.
+    SetColor(UIElement::HEADER);
+    gr_text(gr_sys_font(), text_x, title_y, title.substr(0, total_cols).c_str(), false);
+    const size_t first_line = layout.empty() ? 0 : layout[top_row].line + 1;
+    const size_t last_row = std::min(layout.size(), top_row + rows);
+    const size_t last_line = last_row == 0 ? 0 : layout[last_row - 1].line + 1;
+    std::string status = "Lines " + std::to_string(first_line) + "-" + std::to_string(last_line) +
+                         " of " + std::to_string(view.line_count()) +
+                         (wrap ? "  Wrap on" : "  Wrap off, col " + std::to_string(offset + 1)) +
+                         "  Read-only";
+    gr_color(0x9e, 0x9e, 0x9e, 255);
+    gr_text(gr_sys_font(), text_x, title_y + char_height_ + gap, status.substr(0, total_cols).c_str(),
+            false);
+    // Line numbers (first row of each line) and text.
+    for (size_t i = 0; top_row + i < last_row; ++i) {
+      const Row& row = layout[top_row + i];
+      const int y = text_top + static_cast<int>(i) * char_height_;
+      if (row.first) {
+        std::string number = std::to_string(row.line + 1);
+        number.insert(0, gutter - 1 - number.size(), ' ');
+        gr_color(0x70, 0x70, 0x70, 255);
+        gr_text(gr_sys_font(), text_x, y, number.c_str(), false);
+      }
+      const std::string& line = view.line(row.line);
+      const size_t start = wrap ? row.start : std::min(offset, line.size());
+      const size_t end = wrap ? row.end : std::min(line.size(), offset + cols);
+      if (start >= end) continue;
+      gr_color(0xe0, 0xe0, 0xe0, 255);
+      gr_text(gr_sys_font(), text_x + static_cast<int>(gutter) * char_width_, y,
+              line.substr(start, end - start).c_str(), false);
+    }
+    // Buttons.
+    for (const auto& b : buttons) {
+      const bool dimmed = wrap && (b.button == Button::kLeft || b.button == Button::kRight);
+      if (b.button == Button::kWrap && wrap) {
+        gr_color(0x7c, 0x4d, 0xff, 255);
+      } else {
+        gr_color(dimmed ? 0x1a : 0x26, dimmed ? 0x1a : 0x26, dimmed ? 0x1a : 0x26, 255);
+      }
+      gr_fill(b.x, b.y, b.x + b.w, b.y + b.h);
+      DrawKeyLabel(b.x, b.y, b.w, b.h, b.label);
+    }
+  };
+
+  {
+    std::lock_guard<std::mutex> lg(updateMutex);
+    custom_screen_ = draw;
+    update_screen_locked();
+  }
+  FlushKeys();
+
+  bool done = false;
+  while (!done) {
+    InputEvent evt = WaitInputEvent();
+    if (evt.type() == EventType::EXTRA) {
+      if (evt.key() == static_cast<int>(KeyError::INTERRUPTED)) break;
+      continue;
+    }
+    std::lock_guard<std::mutex> lg(updateMutex);
+    const size_t page = rows > 1 ? rows - 1 : 1;
+    if (evt.type() == EventType::KEY) {
+      switch (evt.key()) {
+        case KEY_VOLUMEUP:
+        case KEY_UP:
+        case KEY_PAGEUP:
+          scroll(-static_cast<long>(page));
+          break;
+        case KEY_VOLUMEDOWN:
+        case KEY_DOWN:
+        case KEY_PAGEDOWN:
+          scroll(static_cast<long>(page));
+          break;
+        case KEY_SCROLLUP:  // finger moved down: show earlier text
+          scroll(-static_cast<long>(swipe_rows));
+          break;
+        case KEY_SCROLLDOWN:
+          scroll(static_cast<long>(swipe_rows));
+          break;
+        case KEY_BACK:
+        case KEY_POWER:
+        case KEY_ENTER:
+          done = true;
+          break;
+        default:
+          break;
+      }
+    } else {
+      const Point p = TouchToScreen(evt.pos());
+      for (const auto& b : buttons) {
+        if (p.x() < b.x || p.x() >= b.x + b.w || p.y() < b.y || p.y() >= b.y + b.h) continue;
+        switch (b.button) {
+          case Button::kBack:
+            done = true;
+            break;
+          case Button::kWrap: {
+            const size_t line = layout.empty() ? 0 : layout[top_row].line;
+            wrap = !wrap;
+            offset = 0;
+            layout = view.Layout(cols, wrap);
+            // Keep the same line at the top.
+            top_row = 0;
+            while (top_row + 1 < layout.size() && layout[top_row].line < line) ++top_row;
+            clamp();
+            break;
+          }
+          case Button::kTop:
+            top_row = 0;
+            offset = 0;
+            break;
+          case Button::kEnd:
+            top_row = layout.size();
+            clamp();
+            break;
+          case Button::kLeft:
+            if (!wrap) offset = offset > cols / 2 ? offset - cols / 2 : 0;
+            break;
+          case Button::kRight:
+            if (!wrap) {
+              offset += cols / 2;
+              clamp();
+            }
+            break;
+        }
+        break;
+      }
+    }
+    if (!done) update_screen_locked();
+  }
+
+  std::lock_guard<std::mutex> lg(updateMutex);
+  custom_screen_ = nullptr;
+  update_screen_locked();
+  return true;
 }
 
 // ---------------------------------------------------------------------------

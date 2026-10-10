@@ -292,6 +292,15 @@ class RecoveryUI {
     *error = "The text editor needs a touch screen.";
     return false;
   }
+  // nasgorOS: read-only text/code viewer. Returns false with error set when the
+  // content cannot be shown (binary data, no graphics); returns true when closed.
+  virtual bool ViewDocument(const std::string& title, const std::string& content,
+                            std::string* error) {
+    (void)title;
+    (void)content;
+    *error = "The text viewer needs a screen.";
+    return false;
+  }
 
   // Displays the localized wipe data menu with pre-generated graphs. If there's an issue
   // with the graphs, falls back to use the backup string headers and items instead. The initial
