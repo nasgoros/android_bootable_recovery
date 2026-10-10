@@ -71,6 +71,27 @@ and the volume scan), an animated **Starting recovery...** screen is shown
 is up or a menu is shown. Touches during startup are discarded. Each step logs its
 duration as `nasgorOS startup: <step> took N ms` (Advanced > View recovery logs).
 
+## Zip and unzip
+
+Three dots on a file or folder > **Compress (zip)** creates `<name>.zip` next to it
+(`<name>-1.zip`, ... when taken); folders are added with their contents. Three dots
+on a `.zip` > **Extract** unpacks it into a new folder named after the archive.
+Nothing existing is replaced: the archive is written to a temporary file and published
+with `link()`, extraction only creates new files in its new folder. Entries with `..`,
+absolute names or backslashes and symlink entries are skipped. Unix permissions are
+kept (execute bits on extract). Symlinks to files are followed when compressing;
+symlinked folders and special files are skipped.
+
+The Terminal has `zip` (`/system/bin/zip`, module `nasgor_zip.recovery`):
+`zip [-r] [-0] [-q] archive[.zip] path...` (Info-ZIP style exit codes: 12 nothing to
+add, 16 bad arguments, 18 some paths skipped). It never modifies an existing archive.
+`unzip`/`zipinfo` are AOSP `ziptool`.
+
+The writer (`file_manager/zip_create.cpp`) is own code with **zip64**: files and
+archives over 4 GB and more than 65535 entries; deflate via zlib. Extraction uses
+libziparchive (also zip64). The ROM installer (Apply update/sideload) does not use
+any of this code.
+
 ## Text viewer
 
 Three dots on a file > **Open** shows it read-only (`ViewDocument`,
@@ -162,8 +183,10 @@ g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
   recovery_ui/text_editor.cpp recovery_ui/text_editor_test.cpp -o /tmp/text-editor-test
 g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include recovery_ui/text_editor.cpp \
   recovery_ui/text_viewer.cpp recovery_ui/text_viewer_test.cpp -o /tmp/text-viewer-test
+g++ -std=c++17 -Wall -Wextra -Werror file_manager/zip_create.cpp \
+  file_manager/zip_create_test.cpp -lz -o /tmp/zip-create-test   # needs python3 + unzip
 /tmp/file-manager-test && /tmp/keyboard-test && /tmp/terminal-test && /tmp/text-editor-test && \
-  /tmp/text-viewer-test
+  /tmp/text-viewer-test && /tmp/zip-create-test   # NASGOR_ZIP_BIG=1: >4 GB zip64 case
 ```
 
 Build `m -j8 recoveryimage`. Check the padded image against the device's recovery

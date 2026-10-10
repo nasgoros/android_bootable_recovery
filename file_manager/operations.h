@@ -19,6 +19,8 @@ class Storage {
   Storage(const Storage&) = delete;
   Storage& operator=(const Storage&) = delete;
   bool valid() const { return fd_ >= 0; }
+  // Absolute path of the storage root, for tools that take paths (zip).
+  const std::string& root() const { return root_; }
   bool List(const std::string& path, std::vector<Entry>* entries, std::string* error) const;
   bool Stat(const std::string& path, struct stat* info, std::string* error) const;
   bool Remove(const std::string& path, std::string* error) const;
@@ -42,6 +44,7 @@ class Storage {
   int OpenDirectory(const std::string& path) const;
   int OpenParent(const std::string& path, std::string* name) const;
   int fd_;
+  std::string root_;
 };
 std::string DisplayName(const std::string& name);
 }  // namespace recovery::files

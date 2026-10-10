@@ -4,6 +4,7 @@
 #include "operations.h"
 #include "partitions.h"
 #include "flash_image.h"
+#include "zip_extract.h"
 #include "recovery_utils/roots.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -94,6 +95,10 @@ class Browser {
   void Create(Storage& storage, const std::string& label, const std::string& folder, bool folder_kind,
               std::string* created);
   void ViewFile(const Storage& storage, const std::string& label, const std::string& path);
+  void Compress(const Storage& storage, const std::string& label, const std::string& folder,
+                const std::vector<Entry>& entries, const Entry& entry, std::string* created);
+  void Extract(const Storage& storage, const std::string& label, const std::string& folder,
+               const std::vector<Entry>& entries, const Entry& entry, std::string* created);
   void Details(const Storage& storage, const std::string& path);
   void EditFile(const Storage& storage, const std::string& label, const std::string& path);
   void FlashImage(const Storage& storage, const std::string& label, const std::string& path);
@@ -191,6 +196,84 @@ static std::string FreeName(const std::vector<Entry>& entries, const std::string
     if (!taken(name)) return name;
   }
   return base;
+}
+
+static std::string AbsolutePath(const Storage& storage, const std::string& relative) {
+  const std::string& root = storage.root();
+  if (relative.empty()) return root;
+  return root.back() == '/' ? root + relative : root + "/" + relative;
+}
+
+static std::string ZipSummary(const recovery::zip::Stats& stats) {
+  std::string text = std::to_string(stats.files) + " files, " + std::to_string(stats.folders) +
+                     " folders";
+  if (stats.skipped > 0) text += ", " + std::to_string(stats.skipped) + " skipped";
+  return text;
+}
+
+void Browser::Compress(const Storage& storage, const std::string& label, const std::string& folder,
+                       const std::vector<Entry>& entries, const Entry& entry,
+                       std::string* created) {
+  const std::string archive = FreeName(entries, entry.name + ".zip");
+  if (!Confirm({"Compress to zip?", Location(label, Join(folder, entry.name)),
+                "Creates: " + DisplayName(archive), "Folders are added with their contents."},
+               "Compress")) {
+    return;
+  }
+  recovery::zip::Callbacks callbacks;
+  std::vector<std::string> skipped;
+  callbacks.warn = [&](const std::string& path, const std::string& reason) {
+    if (skipped.size() < 3) skipped.push_back(DisplayName(path) + ": " + reason);
+  };
+  recovery::zip::Stats stats;
+  std::string error;
+  ui_->ShowBusy("Compressing");
+  const bool ok = recovery::zip::CreateZip(
+      AbsolutePath(storage, Join(folder, archive)),
+      {{AbsolutePath(storage, Join(folder, entry.name)), entry.name}}, true, false, callbacks,
+      &stats, &error);
+  ui_->HideBusy();
+  if (!ok) {
+    Message({"Compress failed:", error});
+    return;
+  }
+  *created = archive;
+  std::vector<std::string> lines{"Created " + DisplayName(archive), ZipSummary(stats)};
+  lines.insert(lines.end(), skipped.begin(), skipped.end());
+  Message(lines);
+}
+
+void Browser::Extract(const Storage& storage, const std::string& label, const std::string& folder,
+                      const std::vector<Entry>& entries, const Entry& entry,
+                      std::string* created) {
+  std::string stem = entry.name.substr(0, entry.name.size() - 4);  // without ".zip"
+  if (stem.empty()) stem = "extracted";
+  const std::string dest = FreeName(entries, stem);
+  if (!Confirm({"Extract zip?", Location(label, Join(folder, entry.name)),
+                "Into the new folder: " + DisplayName(dest) + "/",
+                "Existing files are never replaced."}, "Extract")) {
+    return;
+  }
+  recovery::zip::Callbacks callbacks;
+  std::vector<std::string> skipped;
+  callbacks.warn = [&](const std::string& path, const std::string& reason) {
+    if (skipped.size() < 3) skipped.push_back(DisplayName(path) + ": " + reason);
+  };
+  recovery::zip::Stats stats;
+  std::string error;
+  ui_->ShowBusy("Extracting");
+  const bool ok = recovery::zip::ExtractZip(AbsolutePath(storage, Join(folder, entry.name)),
+                                            AbsolutePath(storage, Join(folder, dest)), callbacks,
+                                            &stats, &error);
+  ui_->HideBusy();
+  if (stats.files + stats.folders > 0 || ok) *created = dest;
+  if (!ok) {
+    Message({"Extract incomplete:", error, ZipSummary(stats) + " extracted"});
+    return;
+  }
+  std::vector<std::string> lines{"Extracted into " + DisplayName(dest) + "/", ZipSummary(stats)};
+  lines.insert(lines.end(), skipped.begin(), skipped.end());
+  Message(lines);
 }
 
 void Browser::Create(Storage& storage, const std::string& label, const std::string& folder,
@@ -407,6 +490,12 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     const bool is_image = entry.name.size() > 4 &&
         strcasecmp(entry.name.c_str() + entry.name.size() - 4, ".img") == 0;
     if (S_ISREG(entry.info.st_mode) && is_image) options.push_back("Flash image");
+    const bool is_zip = entry.name.size() > 4 &&
+        strcasecmp(entry.name.c_str() + entry.name.size() - 4, ".zip") == 0;
+    if (S_ISREG(entry.info.st_mode) && is_zip) options.push_back("Extract");
+    if (S_ISREG(entry.info.st_mode) || S_ISDIR(entry.info.st_mode)) {
+      options.push_back("Compress (zip)");
+    }
     size_t action = Menu({DisplayName(path)}, options);
     const std::string chosen = action < options.size() ? options[action] : "Cancel";
     if (chosen == "Delete") {
@@ -440,6 +529,10 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       EditFile(storage, label, path);
     } else if (chosen == "Flash image") {
       FlashImage(storage, label, path);
+    } else if (chosen == "Extract") {
+      Extract(storage, label, folder, entries, entry, &select_name);
+    } else if (chosen == "Compress (zip)") {
+      Compress(storage, label, folder, entries, entry, &select_name);
     }
   }
 }

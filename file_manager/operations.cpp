@@ -169,7 +169,7 @@ int RenameNoReplace(int from_fd, const std::string& from, int to_fd, const std::
 }  // namespace
 
 Storage::Storage(const std::string& path)
-    : fd_(open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)) {}
+    : fd_(open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)), root_(path) {}
 Storage::~Storage() { if (fd_ >= 0) close(fd_); }
 bool Storage::ValidName(const std::string& name) {
   return !name.empty() && name != "." && name != ".." && name.size() <= 255 &&

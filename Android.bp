@@ -152,11 +152,27 @@ cc_library_static {
         "file_manager/flash_image.cpp",
         "file_manager/operations.cpp",
         "file_manager/partitions.cpp",
+        "file_manager/zip_create.cpp",
+        "file_manager/zip_extract.cpp",
     ],
 
     shared_libs: [
         "librecovery_ui",
+        "libz",
     ],
+}
+
+// nasgorOS: `zip` for the recovery terminal (zip64, deflate). Own code, Apache-2.0.
+cc_binary {
+    name: "nasgor_zip.recovery",
+    recovery: true,
+    stem: "zip",
+    defaults: ["recovery_defaults"],
+    srcs: [
+        "file_manager/zip_create.cpp",
+        "file_manager/zip_main.cpp",
+    ],
+    shared_libs: ["libz"],
 }
 
 prebuilt_etc {
@@ -186,6 +202,7 @@ cc_binary {
         "android.hardware.health-V5-ndk", // from librecovery_utils
         "android.hardware.boot-V1-ndk",
         "librecovery_ui",
+        "libz",
     ],
 
     static_libs: [
@@ -284,6 +301,7 @@ phony {
         // parses the last_install file and reports the embedded update metrics. Also, the last_install file
         // will be deteleted after the report.
         "recovery-persist",
+        "nasgor_zip.recovery",
     ] + select(soong_config_variable("recovery", "target_userimages_use_f2fs"), {
         true: [
             "make_f2fs.recovery",
