@@ -22,6 +22,10 @@ class Storage {
   bool List(const std::string& path, std::vector<Entry>* entries, std::string* error) const;
   bool Stat(const std::string& path, struct stat* info, std::string* error) const;
   bool Remove(const std::string& path, std::string* error) const;
+  // Create an empty folder (0755) or empty regular file (0644); existing names are
+  // never replaced.
+  bool CreateFolder(const std::string& path, std::string* error) const;
+  bool CreateFile(const std::string& path, std::string* error) const;
   bool Move(const std::string& from, const Storage& target, const std::string& to,
             std::string* error) const;
   // Reads a regular file (never a symlink) of at most max_size bytes.

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Standalone host regression test: g++ -std=c++17 operations.cpp operations_test.cpp -o /tmp/file-manager-test
 #include "operations.h"
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -126,8 +127,25 @@ int main() {
   assert(!fs::exists(root + "/missing.conf"));
   fs::create_directory(root + "/adir");
   assert(!a.ReadFile("adir", 1024, &text, &error));
+  // New folder / new file: empty, never replacing an existing name, no escapes.
+  assert(a.CreateFolder("baru", &error) && fs::is_directory(root + "/baru"));
+  assert(!a.CreateFolder("baru", &error) && error.find("already exists") != std::string::npos);
+  assert(a.CreateFile("baru/nasgor.txt", &error) && fs::file_size(root + "/baru/nasgor.txt") == 0);
+  Write(root + "/baru/isi.txt", "keep");
+  assert(!a.CreateFile("baru/isi.txt", &error) && Read(root + "/baru/isi.txt") == "keep");
+  assert(!a.CreateFile("baru", &error));  // a folder has that name
+  fs::create_symlink(external + "/new-target", root + "/baru/link.txt");
+  assert(!a.CreateFile("baru/link.txt", &error) && !fs::exists(external + "/new-target"));
+  assert(!a.CreateFile("../escape.txt", &error) && !a.CreateFolder("a/../b", &error));
+  assert(!a.CreateFile("missing/x.txt", &error));
+  // Navigation may cross mounts (recovery root browsing): open a /dev/shm folder from "/".
+  Write(cross + "/across.txt", "x");
+  Storage system_root("/");
+  assert(system_root.valid());
+  assert(system_root.List(cross.substr(1), &entries, &error));
+  assert(std::any_of(entries.begin(), entries.end(), [](const auto& e) { return e.name == "across.txt"; }));
   fs::remove_all(root);
   fs::remove_all(external);
   fs::remove_all(cross);
-  std::cout << "PASS: rename, recursive delete (nested folders), atomic text save, cross-filesystem move, collisions, symlinks, traversal, ancestry, Unicode\n";
+  std::cout << "PASS: rename, recursive delete (nested folders), atomic text save, cross-filesystem move, collisions, symlinks, traversal, ancestry, Unicode, create folder/file, cross-mount navigation\n";
 }

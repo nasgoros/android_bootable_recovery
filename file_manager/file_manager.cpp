@@ -90,6 +90,10 @@ class Browser {
   std::unique_ptr<Storage> ChooseStorage(std::string* label);
   bool Destination(std::unique_ptr<Storage>* storage, std::string* folder, std::string* label);
   bool RenameInput(const std::string& old, std::string* name);
+  bool NameInput(const std::vector<std::string>& headers, std::string* name);
+  void Create(Storage& storage, const std::string& label, const std::string& folder, bool folder_kind,
+              std::string* created);
+  void ViewFile(const Storage& storage, const std::string& label, const std::string& path);
   void Details(const Storage& storage, const std::string& path);
   void EditFile(const Storage& storage, const std::string& label, const std::string& path);
   void FlashImage(const Storage& storage, const std::string& label, const std::string& path);
@@ -158,6 +162,58 @@ std::unique_ptr<Storage> Browser::ChooseStorage(std::string* label) {
 }
 // Text files up to this size can be edited (configuration files, scripts).
 constexpr size_t kMaxEditSize = 256 * 1024;
+// The read-only viewer accepts larger logs and sources.
+constexpr size_t kMaxViewSize = 2 * 1024 * 1024;
+
+void Browser::ViewFile(const Storage& storage, const std::string& label, const std::string& path) {
+  std::string content, error;
+  if (!storage.ReadFile(path, kMaxViewSize, &content, &error)) {
+    Message({"Cannot open file:", error});
+    return;
+  }
+  if (!ui_->ViewDocument(Location(label, path), content, &error) && !error.empty()) {
+    Message({error});
+  }
+}
+
+// Default name, or "<stem>-N<ext>" when it is taken in `entries`.
+static std::string FreeName(const std::vector<Entry>& entries, const std::string& base) {
+  auto taken = [&](const std::string& name) {
+    for (const auto& e : entries) if (e.name == name) return true;
+    return false;
+  };
+  if (!taken(base)) return base;
+  const size_t dot = base.rfind('.');
+  const std::string stem = dot == std::string::npos || dot == 0 ? base : base.substr(0, dot);
+  const std::string ext = stem.size() == base.size() ? "" : base.substr(dot);
+  for (int i = 1; i < 1000; ++i) {
+    std::string name = stem + "-" + std::to_string(i) + ext;
+    if (!taken(name)) return name;
+  }
+  return base;
+}
+
+void Browser::Create(Storage& storage, const std::string& label, const std::string& folder,
+                     bool folder_kind, std::string* created) {
+  std::vector<Entry> entries;
+  std::string error;
+  storage.List(folder, &entries, &error);
+  std::string name = FreeName(entries, folder_kind ? "New folder" : "nasgor.txt");
+  const std::string what = folder_kind ? "New folder" : "New file";
+  if (ui_->HasOnScreenKeyboard()) {
+    if (!NameInput({what, "In: " + Location(label, folder)}, &name)) return;
+  } else if (!Confirm({what, "In: " + Location(label, folder), "Name: " + DisplayName(name)},
+                      "Create")) {
+    return;
+  }
+  const std::string path = Join(folder, name);
+  const bool ok = folder_kind ? storage.CreateFolder(path, &error) : storage.CreateFile(path, &error);
+  if (!ok) {
+    Message({"Cannot create " + DisplayName(name) + ":", error});
+    return;
+  }
+  *created = name;
+}
 
 void Browser::EditFile(const Storage& storage, const std::string& label,
                        const std::string& path) {
@@ -256,8 +312,11 @@ bool Browser::RenameInput(const std::string& old, std::string* name) {
     Message({"Rename needs a touch screen for the on-screen keyboard."});
     return false;
   }
+  return NameInput({"Rename", "Current: " + DisplayName(old)}, name);
+}
+bool Browser::NameInput(const std::vector<std::string>& headers, std::string* name) {
   while (!stopped_) {
-    if (!ui_->EditText({"Rename", "Current: " + DisplayName(old)}, name)) return false;
+    if (!ui_->EditText(headers, name)) return false;
     if (Storage::ValidName(*name)) return true;
     Message({"Name must be 1-255 bytes, not . or .., without /"});
   }
@@ -291,6 +350,7 @@ bool Browser::Destination(std::unique_ptr<Storage>* storage, std::string* folder
 void Browser::Browse(Storage& storage, const std::string& label) {
   std::string folder;
   size_t selection = 0;
+  std::string select_name;  // entry to highlight after creating it
   while (!stopped_) {
     std::vector<Entry> entries;
     std::string error;
@@ -300,8 +360,16 @@ void Browser::Browse(Storage& storage, const std::string& label) {
       folder = Parent(folder);
       continue;
     }
-    std::vector<std::string> items{"../"};
-    std::vector<bool> actions{false};
+    // Rows before the folder entries.
+    constexpr size_t kNewFolderRow = 1, kNewFileRow = 2, kFirstEntryRow = 3;
+    std::vector<std::string> items{"../", "+ New folder", "+ New file"};
+    std::vector<bool> actions{false, false, false};
+    if (!select_name.empty()) {
+      for (size_t i = 0; i < entries.size(); ++i) {
+        if (entries[i].name == select_name) selection = kFirstEntryRow + i;
+      }
+      select_name.clear();
+    }
     for (const auto& entry : entries) {
       items.push_back(DisplayName(entry.name) + (S_ISDIR(entry.info.st_mode) ? "/" : ""));
       actions.push_back(true);
@@ -323,27 +391,35 @@ void Browser::Browse(Storage& storage, const std::string& label) {
     size_t index = result & ~RecoveryUI::kFileAction;
     if (index == 0 || index >= items.size()) return;
     selection = index;
-    const auto& entry = entries[index - 1];
+    if (index == kNewFolderRow || index == kNewFileRow) {
+      Create(storage, label, folder, index == kNewFolderRow, &select_name);
+      continue;
+    }
+    const auto& entry = entries[index - kFirstEntryRow];
     std::string path = Join(folder, entry.name);
     if (!overflow && S_ISDIR(entry.info.st_mode)) { folder = path; selection = 0; continue; }
     std::vector<std::string> options{"Cancel", "Delete", "Rename", "Move", "Details"};
     if (S_ISDIR(entry.info.st_mode)) options.push_back("Open folder");
-    if (S_ISREG(entry.info.st_mode)) options.push_back("Edit");
+    if (S_ISREG(entry.info.st_mode)) {
+      options.push_back("Open");
+      options.push_back("Edit");
+    }
     const bool is_image = entry.name.size() > 4 &&
         strcasecmp(entry.name.c_str() + entry.name.size() - 4, ".img") == 0;
     if (S_ISREG(entry.info.st_mode) && is_image) options.push_back("Flash image");
     size_t action = Menu({DisplayName(path)}, options);
-    if (action == 1) {
+    const std::string chosen = action < options.size() ? options[action] : "Cancel";
+    if (chosen == "Delete") {
       if (Confirm({"Delete permanently?", DisplayName(path),
                    "Folders are deleted with all their contents."}, "Delete")) {
         ui_->Print("Deleting %s...\n", DisplayName(path).c_str());
         if (!storage.Remove(path, &error)) Message({"Delete incomplete:", error});
       }
-    } else if (action == 2) {
+    } else if (chosen == "Rename") {
       std::string name;
       if (RenameInput(entry.name, &name) && name != entry.name &&
           !storage.Move(path, storage, Join(folder, name), &error)) Message({error});
-    } else if (action == 3) {
+    } else if (chosen == "Move") {
       std::unique_ptr<Storage> dest;
       std::string dest_folder, dest_label;
       if (Destination(&dest, &dest_folder, &dest_label) &&
@@ -353,14 +429,16 @@ void Browser::Browse(Storage& storage, const std::string& label) {
         ui_->Print("Moving %s; please keep storage connected...\n", DisplayName(path).c_str());
         if (!storage.Move(path, *dest, Join(dest_folder, entry.name), &error)) Message({error});
       }
-    } else if (action == 4) {
+    } else if (chosen == "Details") {
       Details(storage, path);
-    } else if (action == 5 && S_ISDIR(entry.info.st_mode)) {
+    } else if (chosen == "Open folder") {
       folder = path;
       selection = 0;
-    } else if (action == 5 && S_ISREG(entry.info.st_mode)) {
+    } else if (chosen == "Open") {
+      ViewFile(storage, label, path);
+    } else if (chosen == "Edit") {
       EditFile(storage, label, path);
-    } else if (action == 6 && S_ISREG(entry.info.st_mode)) {
+    } else if (chosen == "Flash image") {
       FlashImage(storage, label, path);
     }
   }

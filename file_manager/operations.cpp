@@ -183,7 +183,9 @@ int Storage::OpenDirectory(const std::string& path) const {
     size_t end = path.find('/', start);
     std::string part = path.substr(start, end == std::string::npos ? end : end - start);
     if (!ValidName(part)) { close(fd); errno = EINVAL; return -1; }
-    int next = ChildDirectory(fd, part);
+    // Navigation may enter other mounts (/dev, /proc, /mnt/system from the recovery
+    // root); recursive delete and copy still stop at mount points (ChildDirectory).
+    int next = openat(fd, part.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     int error = errno;
     close(fd);
     if (next < 0) { errno = error; return -1; }
@@ -197,6 +199,25 @@ int Storage::OpenParent(const std::string& path, std::string* name) const {
   *name = slash == std::string::npos ? path : path.substr(slash + 1);
   if (!ValidName(*name) || (!path.empty() && path[0] == '/')) { errno = EINVAL; return -1; }
   return OpenDirectory(slash == std::string::npos ? "" : path.substr(0, slash));
+}
+bool Storage::CreateFolder(const std::string& path, std::string* error) const {
+  std::string name;
+  Fd parent(OpenParent(path, &name));
+  if (parent < 0) return Fail(error, "Open folder");
+  if (mkdirat(parent, name.c_str(), 0755)) {
+    return Fail(error, errno == EEXIST ? "Name already exists" : "Create folder");
+  }
+  if (!SyncDir(parent)) return Fail(error, "Flush folder");
+  return true;
+}
+bool Storage::CreateFile(const std::string& path, std::string* error) const {
+  std::string name;
+  Fd parent(OpenParent(path, &name));
+  if (parent < 0) return Fail(error, "Open folder");
+  Fd file(openat(parent, name.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0644));
+  if (file < 0) return Fail(error, errno == EEXIST ? "Name already exists" : "Create file");
+  if (fsync(file) || !SyncDir(parent)) return Fail(error, "Flush file");
+  return true;
 }
 bool Storage::List(const std::string& path, std::vector<Entry>* entries, std::string* error) const {
   entries->clear();
@@ -287,7 +308,7 @@ bool Storage::ReadFile(const std::string& path, size_t max_size, std::string* da
   if (fstat(file, &st)) return Fail(error, "Read file details");
   if (!S_ISREG(st.st_mode)) { errno = EINVAL; return Fail(error, "Not a regular file"); }
   if (static_cast<size_t>(st.st_size) > max_size) {
-    *error = "File is too large to edit (limit " + std::to_string(max_size / 1024) + " KB)";
+    *error = "File is too large (limit " + std::to_string(max_size / 1024) + " KB)";
     return false;
   }
   std::array<char, 65536> buffer;

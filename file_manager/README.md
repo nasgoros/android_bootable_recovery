@@ -2,19 +2,28 @@
 
 Open **File manager** from the recovery main menu. Select internal storage, SD or
 USB OTG. Locked/unavailable storage is labelled; this feature does not implement
-PIN/FBE decryption. It exposes storage volumes, not raw partitions or `/dev`.
+PIN/FBE decryption. The storage list starts with `/`, the recovery root filesystem
+(`/dev`, `/proc`, `/sys`, `/mnt`, ...), followed by partitions mounted read-write.
 
 Tap a folder name to enter it, or the three dots to open **Delete**, **Rename**,
-**Move**, **Details** (and **Edit** for files). Volume keys select rows; Power opens the same action menu,
+**Move**, **Details** (and **Open**/**Edit** for files). Volume keys select rows; Power opens the same action menu,
 with **Open folder** for directories. `../` or Back returns to the parent/storage
 menu. Folders are drawn in amber, files in the default colour. **Rename** uses the
 on-screen keyboard (touch screens only); the current name is pre-filled and validated
 on Done. Move uses a destination browser and confirmation. Delete is permanent and
 requires confirmation, default Cancel.
 
+**+ New folder** and **+ New file** (rows under `../`) create an empty folder (0755)
+or empty file (0644) in the current folder. The name is typed on the on-screen
+keyboard, pre-filled with `New folder` / `nasgor.txt` (`nasgor-1.txt`, ... when taken);
+without a touch screen the default name is confirmed instead. Existing names and
+symlinks are never replaced. New files take the parent folder's SELinux label.
+
 The backend uses directory-relative descriptors, rejects `..`/absolute paths,
-never follows symlinks and refuses child mounts. No operation can delete a storage
-root. Existing destination names are never overwritten. Cross-filesystem moves
+never follows symlinks. Browsing may enter other mounts (from `/` into `/dev`,
+`/proc` or `/mnt/system`), but recursive delete and copy stop at mount points, so a
+mounted partition cannot be emptied through its mount point. No operation can delete
+a storage root. Existing destination names are never overwritten. Cross-filesystem moves
 copy into a private destination staging directory, flush the copy, publish it
 atomically, and only then remove the source. If removal fails, the error states
 that the copy exists and source removal is incomplete. Power loss during a copy
@@ -61,6 +70,15 @@ and the volume scan), an animated **Starting recovery...** screen is shown
 (`ShowBusy`/`HideBusy`) instead of a frozen screen; it ends when the volume manager
 is up or a menu is shown. Touches during startup are discarded. Each step logs its
 duration as `nasgorOS startup: <step> took N ms` (Advanced > View recovery logs).
+
+## Text viewer
+
+Three dots on a file > **Open** shows it read-only (`ViewDocument`,
+`recovery_ui/text_viewer.cpp` for the model): line numbers, files up to 2 MB, LF/CRLF,
+binary files (NUL bytes) and symlinks refused, non-ASCII characters shown as `?`.
+Buttons: **Back**, **Wrap** (on by default; off scrolls sideways with **<** / **>**),
+**Top**, **End**. Swipe or volume keys scroll; Power or Back closes it. The file is
+never modified.
 
 ## Text editor
 
@@ -142,7 +160,10 @@ g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
   recovery_ui/terminal.cpp recovery_ui/terminal_test.cpp -o /tmp/terminal-test
 g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include \
   recovery_ui/text_editor.cpp recovery_ui/text_editor_test.cpp -o /tmp/text-editor-test
-/tmp/file-manager-test && /tmp/keyboard-test && /tmp/terminal-test && /tmp/text-editor-test
+g++ -std=c++17 -Wall -Wextra -Werror -Irecovery_ui/include recovery_ui/text_editor.cpp \
+  recovery_ui/text_viewer.cpp recovery_ui/text_viewer_test.cpp -o /tmp/text-viewer-test
+/tmp/file-manager-test && /tmp/keyboard-test && /tmp/terminal-test && /tmp/text-editor-test && \
+  /tmp/text-viewer-test
 ```
 
 Build `m -j8 recoveryimage`. Check the padded image against the device's recovery
